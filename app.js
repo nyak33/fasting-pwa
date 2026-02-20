@@ -42,7 +42,7 @@ const els = {
 
 els.enablePushBtn.addEventListener("click", enablePush);
 els.openSummaryBtn.addEventListener("click", () => {
-  window.location.href = `${BASE_PATH}summary`;
+  window.location.href = `${BASE_PATH}?view=summary`;
 });
 
 for (const btn of els.checkinDialog.querySelectorAll("button[data-answer]")) {

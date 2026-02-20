@@ -1,0 +1,149 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a6847" />
+    <title>Fasting PWA</title>
+    <link rel="manifest" href="./manifest.json" />
+    <style>
+      :root {
+        --bg: #f5f8f6;
+        --card: #ffffff;
+        --brand: #0a6847;
+        --brand-dark: #055036;
+        --text: #1f2b24;
+        --muted: #5c6d63;
+        --danger: #b23a3a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: radial-gradient(circle at 20% 0%, #e6f3eb, var(--bg) 45%);
+        color: var(--text);
+        min-height: 100vh;
+      }
+
+      .shell {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      .card {
+        background: var(--card);
+        border-radius: 14px;
+        padding: 18px;
+        box-shadow: 0 8px 20px rgba(7, 53, 34, 0.08);
+        margin-bottom: 14px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      button {
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 14px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      .btn-primary {
+        background: var(--brand);
+        color: white;
+      }
+
+      .btn-danger {
+        background: var(--danger);
+        color: #fff;
+      }
+
+      .btn-outline {
+        background: #eef4f1;
+        color: var(--text);
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      #status {
+        font-weight: 600;
+      }
+
+      #logs {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      #logs li {
+        padding: 9px 0;
+        border-bottom: 1px solid #e7eee9;
+      }
+
+      dialog {
+        border: 0;
+        border-radius: 12px;
+        width: min(420px, 90vw);
+        padding: 18px;
+      }
+
+      dialog::backdrop {
+        background: rgba(16, 31, 22, 0.6);
+      }
+
+      #summaryPanel {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card">
+        <h1>Fasting Tracker (Malaysia)</h1>
+        <p class="muted">Local-first tracker using IndexedDB. Timezone: Asia/Kuala_Lumpur.</p>
+        <p id="status">Status: initializing...</p>
+        <div class="row">
+          <button id="enablePushBtn" class="btn-primary">Enable Push</button>
+          <button id="openSummaryBtn" class="btn-outline">Open Summary</button>
+        </div>
+      </section>
+
+      <section class="card" id="homePanel">
+        <h2>Daily Logs</h2>
+        <ul id="logs"></ul>
+      </section>
+
+      <section class="card" id="summaryPanel">
+        <h2>Ramadan Summary</h2>
+        <p id="summaryText" class="muted">Loading summary...</p>
+      </section>
+    </main>
+
+    <dialog id="checkinDialog">
+      <h3 id="checkinTitle">Check-in Puasa</h3>
+      <p id="checkinPrompt"></p>
+      <p id="checkinMessage" class="muted"></p>
+      <div class="row">
+        <button data-answer="fasting" class="btn-primary">Saya Puasa</button>
+        <button data-answer="not_fasting" class="btn-danger">Saya Tidak Puasa</button>
+      </div>
+    </dialog>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

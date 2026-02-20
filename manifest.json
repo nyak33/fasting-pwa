@@ -1,0 +1,10 @@
+﻿{
+  "name": "Fasting PWA",
+  "short_name": "Fasting",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f8f6",
+  "theme_color": "#0a6847",
+  "description": "Malaysia-first fasting tracker with local-first logs and push check-ins."
+}

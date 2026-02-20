@@ -46,7 +46,7 @@ def _run_checkin_job(settings) -> None:
     payload = {
         "title": "Check-in puasa",
         "body": "Sudah jawab check-in puasa hari ini?",
-        "url": f"{settings.frontend_base_url}/checkin?date={date_iso}",
+        "url": f"{settings.frontend_base_url}/?view=checkin&date={date_iso}",
         "tag": f"checkin-{date_iso}",
     }
     send_push_batch(pending, payload, settings)
@@ -70,7 +70,7 @@ def _run_summary_job(settings) -> None:
     payload = {
         "title": "Ringkasan Ramadan",
         "body": "Semak ringkasan puasa anda dan rancang ganti sebelum Ramadan seterusnya.",
-        "url": f"{settings.frontend_base_url}/summary",
+        "url": f"{settings.frontend_base_url}/?view=summary",
         "tag": f"summary-{window['end_date']}",
     }
     send_push_batch(subscriptions, payload, settings)

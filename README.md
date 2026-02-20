@@ -35,11 +35,11 @@ fasting-pwa/
   - 08:00-11:00
   - 13:00-16:00
   - 17:00-19:30
-- Notification deep links open `/checkin?date=YYYY-MM-DD`.
-- `/checkin` shows a modal with 2 choices.
+- Notification deep links open `/?view=checkin&date=YYYY-MM-DD`.
+- `?view=checkin` shows a modal with 2 choices.
 - Scrapes Ramadan start/end from e-Solat URL and caches backend result.
-- Sends summary prompt 72h after the last Ramadan day to open `/summary`.
-- `/summary` is computed locally from IndexedDB and reminds ganti days.
+- Sends summary prompt 72h after the last Ramadan day to open `/?view=summary`.
+- `?view=summary` is computed locally from IndexedDB and reminds ganti days.
 - Frontend can run under repo subpath for GitHub Pages; service worker registers under subpath scope.
 
 ## Backend Setup (Local)

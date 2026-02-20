@@ -6,7 +6,7 @@ const BASE_PATH = new URL("./", window.location.href).pathname;
 
 const DEFAULT_BACKEND_BASE = (() => {
   if (window.location.hostname.endsWith("github.io")) {
-    return "https://REPLACE_WITH_BACKEND_DOMAIN/api";
+    return "https://api.syaqirshaq.online/api";
   }
   if (window.location.port === "8000") {
     return window.location.origin;

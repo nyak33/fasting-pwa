@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Redirecting...</title>
+    <script>
+      (function redirectForGithubPages() {
+        var path = window.location.pathname;
+        var search = new URLSearchParams(window.location.search);
+        var parts = path.split("/").filter(Boolean);
+        var repoBase = parts.length ? "/" + parts[0] + "/" : "/";
+
+        var target = repoBase;
+        if (path.endsWith("/summary")) {
+          target = repoBase + "?view=summary";
+        } else if (path.endsWith("/checkin")) {
+          var date = search.get("date");
+          target = repoBase + "?view=checkin" + (date ? "&date=" + encodeURIComponent(date) : "");
+        }
+
+        window.location.replace(target);
+      })();
+    </script>
+  </head>
+  <body>
+    Redirecting...
+  </body>
+</html>

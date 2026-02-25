@@ -3,7 +3,7 @@
 
 const TIMEZONE = "Asia/Kuala_Lumpur";
 const BASE_PATH = new URL("./", window.location.href).pathname;
-const APP_VERSION = "20260225-3";
+const APP_VERSION = "20260225-4";
 const PROD_BACKEND_BASE = "https://api.syaqirshaq.online/api";
 
 const DEFAULT_BACKEND_BASE = (() => {
@@ -28,6 +28,7 @@ const API = {
   subscribe: `${BACKEND_BASE}/subscribe`,
   checkin: `${BACKEND_BASE}/checkin`,
   ramadanWindow: `${BACKEND_BASE}/ramadan-window`,
+  prayerTimes: `${BACKEND_BASE}/prayer-times`,
 };
 
 const DB_NAME = "fasting-pwa-db";
@@ -36,6 +37,8 @@ let dbPromise = null;
 let vapidPublicKey = null;
 let subscriptionEndpoint = null;
 let backendConfigError = null;
+let prayerTimesPayload = null;
+let prayerViewMode = "today";
 
 const els = {
   status: document.getElementById("status"),
@@ -45,6 +48,13 @@ const els = {
   checkinMessage: document.getElementById("checkinMessage"),
   enablePushBtn: document.getElementById("enablePushBtn"),
   openSummaryBtn: document.getElementById("openSummaryBtn"),
+  prayerMeta: document.getElementById("prayerMeta"),
+  prayerTodayTab: document.getElementById("prayerTodayTab"),
+  prayer30Tab: document.getElementById("prayer30Tab"),
+  prayerTodayView: document.getElementById("prayerTodayView"),
+  prayer30View: document.getElementById("prayer30View"),
+  prayerTableBody: document.getElementById("prayerTableBody"),
+  prayerFooter: document.getElementById("prayerFooter"),
   summaryPanel: document.getElementById("summaryPanel"),
   summaryText: document.getElementById("summaryText"),
 };
@@ -53,6 +63,12 @@ els.enablePushBtn.addEventListener("click", enablePush);
 els.openSummaryBtn.addEventListener("click", () => {
   window.location.href = `${BASE_PATH}?view=summary`;
 });
+if (els.prayerTodayTab) {
+  els.prayerTodayTab.addEventListener("click", () => setPrayerViewMode("today"));
+}
+if (els.prayer30Tab) {
+  els.prayer30Tab.addEventListener("click", () => setPrayerViewMode("days30"));
+}
 window.addEventListener("focus", syncPushButtonState);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
@@ -76,6 +92,7 @@ async function boot() {
     await loadBackendConfig();
     syncPushButtonState();
     await renderLogs();
+    await renderPrayerTimes();
     await renderRoute();
     if (backendConfigError) {
       setStatus(`Ready with limited push setup: ${backendConfigError.message}`);
@@ -262,6 +279,96 @@ async function renderLogs() {
   }
 }
 
+async function renderPrayerTimes() {
+  if (!els.prayerMeta) return;
+
+  try {
+    const data = await fetchJson(`${API.prayerTimes}?days=30`);
+    prayerTimesPayload = data;
+
+    const todayLabel = formatDateLong(data.today);
+    els.prayerMeta.textContent = `${data.location} - ${todayLabel}`;
+    els.prayerFooter.textContent = `Based on: ${data.source_name}. GMT+08:00${
+      data.stale ? " - showing cached data while source refresh failed." : ""
+    }`;
+    setPrayerViewMode(prayerViewMode);
+  } catch (error) {
+    console.error(error);
+    els.prayerMeta.textContent = `Unable to load prayer times: ${error.message}`;
+    if (els.prayerFooter) {
+      els.prayerFooter.textContent = "";
+    }
+  }
+}
+
+function setPrayerViewMode(mode) {
+  prayerViewMode = mode;
+  if (!els.prayerTodayTab || !els.prayer30Tab || !els.prayerTodayView || !els.prayer30View) {
+    return;
+  }
+
+  const showToday = prayerViewMode === "today";
+  els.prayerTodayTab.classList.toggle("active", showToday);
+  els.prayer30Tab.classList.toggle("active", !showToday);
+  els.prayerTodayView.style.display = showToday ? "grid" : "none";
+  els.prayer30View.style.display = showToday ? "none" : "block";
+
+  if (prayerTimesPayload) {
+    renderPrayerToday(prayerTimesPayload);
+    renderPrayerTable(prayerTimesPayload);
+  }
+}
+
+function renderPrayerToday(payload) {
+  const todayRow =
+    payload.items.find((item) => item.date === payload.today) ||
+    payload.items.find((item) => item.date >= payload.today) ||
+    payload.items[0];
+
+  if (!todayRow) {
+    els.prayerTodayView.innerHTML = `<p class="muted">No prayer time data.</p>`;
+    return;
+  }
+
+  const prayers = [
+    { label: "Fajr", key: "fajr" },
+    { label: "Sunrise", key: "sunrise" },
+    { label: "Dhuhr", key: "dhuhr" },
+    { label: "Asr", key: "asr" },
+    { label: "Maghrib", key: "maghrib" },
+    { label: "Isha", key: "isha" },
+  ];
+
+  els.prayerTodayView.innerHTML = prayers
+    .map(
+      (item) => `
+        <article class="prayer-item">
+          <h3>${item.label}</h3>
+          <p>${formatTime12h(todayRow[item.key])}</p>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function renderPrayerTable(payload) {
+  if (!els.prayerTableBody) return;
+
+  els.prayerTableBody.innerHTML = payload.items
+    .map((item) => {
+      return `<tr>
+        <td>${formatDateShort(item.date)}</td>
+        <td>${formatTime12h(item.fajr)}</td>
+        <td>${formatTime12h(item.sunrise)}</td>
+        <td>${formatTime12h(item.dhuhr)}</td>
+        <td>${formatTime12h(item.asr)}</td>
+        <td>${formatTime12h(item.maghrib)}</td>
+        <td>${formatTime12h(item.isha)}</td>
+      </tr>`;
+    })
+    .join("");
+}
+
 async function renderSummary() {
   try {
     const [windowData, logs] = await Promise.all([fetchJson(API.ramadanWindow), getAllLogs()]);
@@ -325,6 +432,39 @@ function todayInTimezone() {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+}
+
+function formatDateLong(isoDate) {
+  const d = new Date(`${isoDate}T00:00:00`);
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: TIMEZONE,
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(d);
+}
+
+function formatDateShort(isoDate) {
+  const d = new Date(`${isoDate}T00:00:00`);
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: TIMEZONE,
+    day: "2-digit",
+    month: "short",
+  }).format(d);
+}
+
+function formatTime12h(value) {
+  if (!value || typeof value !== "string") return "--";
+  const parts = value.split(":");
+  if (parts.length < 2) return value;
+
+  const hh = Number(parts[0]);
+  const mm = parts[1].padStart(2, "0");
+  if (!Number.isFinite(hh)) return value;
+
+  const period = hh >= 12 ? "pm" : "am";
+  const hour = ((hh + 11) % 12) + 1;
+  return `${hour}:${mm} ${period}`;
 }
 
 function base64ToUint8Array(base64String) {

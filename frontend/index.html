@@ -80,6 +80,23 @@
         gap: 10px;
       }
 
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+        margin-bottom: 12px;
+      }
+
+      .tab-btn {
+        background: #eef4f1;
+        color: var(--text);
+      }
+
+      .tab-btn.active {
+        background: var(--brand);
+        color: #fff;
+      }
+
       #status {
         font-weight: 600;
       }
@@ -109,6 +126,55 @@
       #summaryPanel {
         display: none;
       }
+
+      #prayerTodayView {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 10px;
+      }
+
+      .prayer-item {
+        background: #f6faf8;
+        border: 1px solid #e1ece6;
+        border-radius: 10px;
+        padding: 10px;
+      }
+
+      .prayer-item h3 {
+        margin: 0 0 4px;
+        font-size: 1rem;
+      }
+
+      .prayer-item p {
+        margin: 0;
+        font-weight: 600;
+      }
+
+      #prayer30View {
+        overflow-x: auto;
+      }
+
+      #prayerTable {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      #prayerTable th,
+      #prayerTable td {
+        text-align: left;
+        padding: 8px 6px;
+        border-bottom: 1px solid #e7eee9;
+        white-space: nowrap;
+      }
+
+      #prayerTable th {
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+
+      .small {
+        font-size: 0.92rem;
+      }
     </style>
   </head>
   <body>
@@ -128,6 +194,33 @@
         <ul id="logs"></ul>
       </section>
 
+      <section class="card" id="prayerPanel">
+        <h2>Islamic Prayer Times</h2>
+        <p id="prayerMeta" class="muted">Loading prayer times...</p>
+        <div class="tabs" role="tablist" aria-label="Prayer times tabs">
+          <button id="prayerTodayTab" class="tab-btn active" type="button" role="tab">Today</button>
+          <button id="prayer30Tab" class="tab-btn" type="button" role="tab">30 days</button>
+        </div>
+        <div id="prayerTodayView"></div>
+        <div id="prayer30View" style="display: none">
+          <table id="prayerTable">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Fajr</th>
+                <th>Sunrise</th>
+                <th>Dhuhr</th>
+                <th>Asr</th>
+                <th>Maghrib</th>
+                <th>Isha</th>
+              </tr>
+            </thead>
+            <tbody id="prayerTableBody"></tbody>
+          </table>
+        </div>
+        <p id="prayerFooter" class="muted small"></p>
+      </section>
+
       <section class="card" id="summaryPanel">
         <h2>Ramadan Summary</h2>
         <p id="summaryText" class="muted">Loading summary...</p>
@@ -144,6 +237,6 @@
       </div>
     </dialog>
 
-    <script type="module" src="./app.js?v=20260225-3"></script>
+    <script type="module" src="./app.js?v=20260225-4"></script>
   </body>
 </html>

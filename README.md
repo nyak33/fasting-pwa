@@ -31,6 +31,7 @@ fasting-pwa/
 - Uses timezone `Asia/Kuala_Lumpur` everywhere.
 - Stores only push subscriptions and `last_answered_date` in SQLite.
 - Logs fasting answers locally in IndexedDB (local-first).
+- Shows prayer times from JAKIM/e-Solat (Today + next 30 days).
 - Sends check-in push every 10 minutes during these windows until answered:
   - 08:00-11:00
   - 13:00-16:00

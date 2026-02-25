@@ -8,12 +8,13 @@ from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from db import init_db, upsert_subscription, update_last_answered_date
 from jakim_calendar import get_cached_ramadan_window
+from prayer_times import get_prayer_times_window
 from scheduler import build_scheduler
 
 load_dotenv()
@@ -27,6 +28,8 @@ class Settings:
     vapid_private_key: str
     vapid_subject: str
     frontend_base_url: str
+    prayer_zone: str
+    prayer_location: str
 
 
 def get_settings() -> Settings:
@@ -34,6 +37,11 @@ def get_settings() -> Settings:
     private = os.getenv("VAPID_PRIVATE_KEY", "")
     subject = os.getenv("VAPID_SUBJECT", "mailto:admin@example.com")
     frontend = os.getenv("FRONTEND_BASE_URL", "http://localhost:5500")
+    prayer_zone = os.getenv("PRAYER_ZONE", "SGR01")
+    prayer_location = os.getenv(
+        "PRAYER_LOCATION",
+        "Taman Pinggiran Putra, Seri Kembangan, Selangor",
+    )
 
     if not public or not private:
         raise RuntimeError("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be set.")
@@ -43,6 +51,8 @@ def get_settings() -> Settings:
         vapid_private_key=private,
         vapid_subject=subject,
         frontend_base_url=frontend.rstrip("/"),
+        prayer_zone=prayer_zone,
+        prayer_location=prayer_location,
     )
 
 
@@ -108,12 +118,21 @@ def get_config() -> dict:
         "timezone": "Asia/Kuala_Lumpur",
         "vapidPublicKey": settings.vapid_public_key,
         "frontendBaseUrl": settings.frontend_base_url,
+        "prayerZone": settings.prayer_zone,
+        "prayerLocation": settings.prayer_location,
     }
 
 
 @app.get("/ramadan-window")
 def ramadan_window() -> dict:
     return get_cached_ramadan_window(TIMEZONE)
+
+
+@app.get("/prayer-times")
+def prayer_times(days: int = Query(default=30, ge=1, le=60)) -> dict:
+    payload = get_prayer_times_window(TIMEZONE, settings.prayer_zone, days=days)
+    payload["location"] = settings.prayer_location
+    return payload
 
 
 @app.post("/subscribe")

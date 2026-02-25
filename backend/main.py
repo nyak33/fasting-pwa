@@ -30,6 +30,9 @@ class Settings:
     frontend_base_url: str
     prayer_zone: str
     prayer_location: str
+    prayer_city: str
+    prayer_country: str
+    prayer_method: int
 
 
 def get_settings() -> Settings:
@@ -42,6 +45,9 @@ def get_settings() -> Settings:
         "PRAYER_LOCATION",
         "Taman Pinggiran Putra, Seri Kembangan, Selangor",
     )
+    prayer_city = os.getenv("PRAYER_CITY", "Seri Kembangan")
+    prayer_country = os.getenv("PRAYER_COUNTRY", "Malaysia")
+    prayer_method = int(os.getenv("PRAYER_METHOD", "11"))
 
     if not public or not private:
         raise RuntimeError("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be set.")
@@ -53,6 +59,9 @@ def get_settings() -> Settings:
         frontend_base_url=frontend.rstrip("/"),
         prayer_zone=prayer_zone,
         prayer_location=prayer_location,
+        prayer_city=prayer_city,
+        prayer_country=prayer_country,
+        prayer_method=prayer_method,
     )
 
 
@@ -120,6 +129,8 @@ def get_config() -> dict:
         "frontendBaseUrl": settings.frontend_base_url,
         "prayerZone": settings.prayer_zone,
         "prayerLocation": settings.prayer_location,
+        "prayerCity": settings.prayer_city,
+        "prayerCountry": settings.prayer_country,
     }
 
 
@@ -130,7 +141,14 @@ def ramadan_window() -> dict:
 
 @app.get("/prayer-times")
 def prayer_times(days: int = Query(default=30, ge=1, le=60)) -> dict:
-    payload = get_prayer_times_window(TIMEZONE, settings.prayer_zone, days=days)
+    payload = get_prayer_times_window(
+        timezone=TIMEZONE,
+        zone=settings.prayer_zone,
+        days=days,
+        city=settings.prayer_city,
+        country=settings.prayer_country,
+        method=settings.prayer_method,
+    )
     payload["location"] = settings.prayer_location
     return payload
 

@@ -45,6 +45,12 @@ els.enablePushBtn.addEventListener("click", enablePush);
 els.openSummaryBtn.addEventListener("click", () => {
   window.location.href = `${BASE_PATH}?view=summary`;
 });
+window.addEventListener("focus", syncPushButtonState);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    syncPushButtonState();
+  }
+});
 
 for (const btn of els.checkinDialog.querySelectorAll("button[data-answer]")) {
   btn.addEventListener("click", async () => {
@@ -146,9 +152,17 @@ async function enablePush() {
       throw new Error("Backend config missing VAPID key. Check API /config and CORS.");
     }
 
+    setStatus("Requesting notification permission...");
     const permission = await Notification.requestPermission();
-    if (permission !== "granted") {
-      setStatus("Notification permission was not granted.");
+    if (permission === "default") {
+      setStatus("Permission prompt was dismissed. Tap Enable Push again and choose Allow.");
+      syncPushButtonState();
+      return;
+    }
+
+    if (permission === "denied") {
+      setStatus("Notifications are blocked. Open browser site settings and set Notifications to Allow.");
+      syncPushButtonState();
       return;
     }
 
@@ -419,7 +433,7 @@ function getPushSupportError() {
   }
 
   if (Notification.permission === "denied") {
-    return "Notifications are blocked for this site in browser settings.";
+    return "Notifications are blocked. Open browser site settings and set Notifications to Allow.";
   }
 
   return null;

@@ -32,6 +32,18 @@ SOURCE_META = {
     },
 }
 
+PRAYER_FIELDS = [
+    {"key": "imsak", "label": "Imsak"},
+    {"key": "fajr", "label": "Fajr"},
+    {"key": "sunrise", "label": "Sunrise"},
+    {"key": "dhuhr", "label": "Dhuhr"},
+    {"key": "asr", "label": "Asr"},
+    {"key": "sunset", "label": "Sunset"},
+    {"key": "maghrib", "label": "Maghrib"},
+    {"key": "isha", "label": "Isha"},
+    {"key": "midnight", "label": "Midnight"},
+]
+
 
 def _read_cache() -> dict[str, Any]:
     if not os.path.exists(CACHE_PATH):
@@ -94,8 +106,10 @@ def _normalize_jakim_entry(raw: dict[str, Any]) -> dict[str, str] | None:
         "sunrise": _clean_time_token(str(raw.get("syuruk", ""))),
         "dhuhr": _clean_time_token(str(raw.get("dhuhr", ""))),
         "asr": _clean_time_token(str(raw.get("asr", ""))),
+        "sunset": _clean_time_token(str(raw.get("sunset") or raw.get("maghrib", ""))),
         "maghrib": _clean_time_token(str(raw.get("maghrib", ""))),
         "isha": _clean_time_token(str(raw.get("isha", ""))),
+        "midnight": _clean_time_token(str(raw.get("midnight", ""))),
     }
 
 
@@ -122,8 +136,10 @@ def _normalize_aladhan_entry(raw: dict[str, Any]) -> dict[str, str] | None:
         "sunrise": _clean_time_token(str(timings.get("Sunrise", ""))),
         "dhuhr": _clean_time_token(str(timings.get("Dhuhr", ""))),
         "asr": _clean_time_token(str(timings.get("Asr", ""))),
+        "sunset": _clean_time_token(str(timings.get("Sunset", ""))),
         "maghrib": _clean_time_token(str(timings.get("Maghrib", ""))),
         "isha": _clean_time_token(str(timings.get("Isha", ""))),
+        "midnight": _clean_time_token(str(timings.get("Midnight", ""))),
     }
 
 
@@ -320,6 +336,7 @@ def get_prayer_times_window(
         "timezone": "Asia/Kuala_Lumpur",
         "zone": zone,
         "days": total_days,
+        "prayer_fields": PRAYER_FIELDS,
         "today": start.isoformat(),
         "generated_at": now.isoformat(),
         "source_name": source_meta["name"],

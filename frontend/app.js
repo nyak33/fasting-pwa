@@ -3,7 +3,7 @@
 
 const TIMEZONE = "Asia/Kuala_Lumpur";
 const BASE_PATH = new URL("./", window.location.href).pathname;
-const APP_VERSION = "20260225-4";
+const APP_VERSION = "20260225-7";
 const PROD_BACKEND_BASE = "https://api.syaqirshaq.online/api";
 
 const DEFAULT_BACKEND_BASE = (() => {
@@ -30,6 +30,17 @@ const API = {
   ramadanWindow: `${BACKEND_BASE}/ramadan-window`,
   prayerTimes: `${BACKEND_BASE}/prayer-times`,
 };
+const DEFAULT_PRAYER_FIELDS = [
+  { key: "imsak", label: "Imsak" },
+  { key: "fajr", label: "Fajr" },
+  { key: "sunrise", label: "Sunrise" },
+  { key: "dhuhr", label: "Dhuhr" },
+  { key: "asr", label: "Asr" },
+  { key: "sunset", label: "Sunset" },
+  { key: "maghrib", label: "Maghrib" },
+  { key: "isha", label: "Isha" },
+  { key: "midnight", label: "Midnight" },
+];
 
 const DB_NAME = "fasting-pwa-db";
 const DB_VERSION = 1;
@@ -38,7 +49,10 @@ let vapidPublicKey = null;
 let subscriptionEndpoint = null;
 let backendConfigError = null;
 let prayerTimesPayload = null;
+let ramadanWindowPayload = null;
 let prayerViewMode = "today";
+let pendingCheckinRequest = null;
+let isSubmittingCheckin = false;
 
 const els = {
   status: document.getElementById("status"),
@@ -48,11 +62,13 @@ const els = {
   checkinMessage: document.getElementById("checkinMessage"),
   enablePushBtn: document.getElementById("enablePushBtn"),
   openSummaryBtn: document.getElementById("openSummaryBtn"),
+  ramadanDayMeta: document.getElementById("ramadanDayMeta"),
   prayerMeta: document.getElementById("prayerMeta"),
   prayerTodayTab: document.getElementById("prayerTodayTab"),
   prayer30Tab: document.getElementById("prayer30Tab"),
   prayerTodayView: document.getElementById("prayerTodayView"),
   prayer30View: document.getElementById("prayer30View"),
+  prayerTableHeadRow: document.getElementById("prayerTableHeadRow"),
   prayerTableBody: document.getElementById("prayerTableBody"),
   prayerFooter: document.getElementById("prayerFooter"),
   summaryPanel: document.getElementById("summaryPanel"),
@@ -81,6 +97,11 @@ for (const btn of els.checkinDialog.querySelectorAll("button[data-answer]")) {
     await answerCheckin(btn.dataset.answer);
   });
 }
+els.checkinDialog.addEventListener("cancel", (event) => {
+  if (pendingCheckinRequest && pendingCheckinRequest.allowCancel === false) {
+    event.preventDefault();
+  }
+});
 
 boot();
 
@@ -92,6 +113,7 @@ async function boot() {
     await loadBackendConfig();
     syncPushButtonState();
     await renderLogs();
+    await renderRamadanDayMeta();
     await renderPrayerTimes();
     await renderRoute();
     if (backendConfigError) {
@@ -129,10 +151,18 @@ async function renderRoute() {
   const route = currentRoute();
 
   if (route === "checkin") {
-    const date = new URLSearchParams(window.location.search).get("date") || todayInTimezone();
-    els.checkinPrompt.textContent = `Adakah anda berpuasa pada ${date}?`;
+    const date = normalizeIsoDate(new URLSearchParams(window.location.search).get("date")) || todayInTimezone();
+    pendingCheckinRequest = {
+      date,
+      allowCancel: true,
+      redirectToHome: true,
+      resolve: null,
+    };
+    els.checkinPrompt.textContent = `Adakah anda berpuasa pada ${formatDateLong(date)}?`;
     els.checkinMessage.textContent = "Pilih salah satu jawapan untuk simpan log harian anda.";
-    els.checkinDialog.showModal();
+    if (!els.checkinDialog.open) {
+      els.checkinDialog.showModal();
+    }
   }
 
   if (route === "summary") {
@@ -215,7 +245,13 @@ async function enablePush() {
       throw new Error(`Subscribe failed (${response.status}).`);
     }
 
-    setStatus("Push enabled and subscription saved.");
+    setStatus("Push enabled and subscription saved. Checking missing Ramadan logs...");
+    const completedCount = await runRamadanCatchupCheckins();
+    if (completedCount > 0) {
+      setStatus(`Push enabled. ${completedCount} missing Ramadan log(s) confirmed.`);
+    } else {
+      setStatus("Push enabled and subscription saved.");
+    }
     syncPushButtonState();
   } catch (error) {
     console.error(error);
@@ -224,39 +260,155 @@ async function enablePush() {
 }
 
 async function answerCheckin(answer) {
-  const date = new URLSearchParams(window.location.search).get("date") || todayInTimezone();
+  if (isSubmittingCheckin) return;
+  isSubmittingCheckin = true;
+
+  const activeRequest = pendingCheckinRequest;
+  const routeDate = normalizeIsoDate(new URLSearchParams(window.location.search).get("date"));
+  const date = activeRequest?.date || routeDate || todayInTimezone();
   const msg =
     answer === "fasting"
       ? "Alhamdulillah, semoga istiqamah."
       : "Terima kasih. Catat dan rancang ganti sebelum Ramadan seterusnya.";
 
-  await putLog({
-    date,
-    status: answer,
-    updatedAt: new Date().toISOString(),
-  });
-
-  els.checkinMessage.textContent = msg;
-  await renderLogs();
-
-  if (subscriptionEndpoint) {
-    await fetch(API.checkin, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        endpoint: subscriptionEndpoint,
-        date,
-        status: answer,
-      }),
+  try {
+    await putLog({
+      date,
+      status: answer,
+      updatedAt: new Date().toISOString(),
     });
-  }
 
-  setTimeout(() => {
+    els.checkinMessage.textContent = msg;
+    await renderLogs();
+
+    if (subscriptionEndpoint) {
+      await fetch(API.checkin, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: subscriptionEndpoint,
+          date,
+          status: answer,
+        }),
+      });
+    }
+
+    const shouldRedirect = activeRequest?.redirectToHome === true;
+    if (typeof activeRequest?.resolve === "function") {
+      activeRequest.resolve({ date, answer });
+    }
+    pendingCheckinRequest = null;
+
+    if (shouldRedirect) {
+      setTimeout(() => {
+        if (els.checkinDialog.open) {
+          els.checkinDialog.close();
+        }
+        window.location.href = `${BASE_PATH}`;
+      }, 500);
+      return;
+    }
+
     if (els.checkinDialog.open) {
       els.checkinDialog.close();
     }
-    window.location.href = `${BASE_PATH}`;
-  }, 500);
+  } catch (error) {
+    console.error(error);
+    setStatus(`Unable to save check-in: ${error.message}`);
+  } finally {
+    isSubmittingCheckin = false;
+  }
+}
+
+async function runRamadanCatchupCheckins() {
+  const missingDates = await getMissingRamadanLogDates();
+  if (!missingDates.length) {
+    return 0;
+  }
+
+  for (let i = 0; i < missingDates.length; i += 1) {
+    const date = missingDates[i];
+    // Keep this explicit so user can confirm each missed day one-by-one.
+    await promptCheckinForDate(date, i + 1, missingDates.length);
+  }
+
+  return missingDates.length;
+}
+
+async function getMissingRamadanLogDates() {
+  const windowData = await getRamadanWindow();
+  const today = todayInTimezone();
+
+  if (!windowData || today < windowData.start_date) {
+    return [];
+  }
+
+  const includeToday = shouldIncludeTodayInCatchup();
+  let catchupEnd = includeToday ? today : shiftIsoDate(today, -1);
+
+  if (catchupEnd > windowData.end_date) {
+    catchupEnd = windowData.end_date;
+  }
+  if (catchupEnd < windowData.start_date) {
+    return [];
+  }
+
+  const logs = await getAllLogs();
+  const loggedDates = new Set(logs.map((item) => item.date));
+  const allExpectedDates = dateRange(windowData.start_date, catchupEnd);
+  return allExpectedDates.filter((date) => !loggedDates.has(date));
+}
+
+function promptCheckinForDate(date, order, total) {
+  return new Promise((resolve) => {
+    pendingCheckinRequest = {
+      date,
+      allowCancel: false,
+      redirectToHome: false,
+      resolve,
+    };
+
+    els.checkinPrompt.textContent = `Adakah anda berpuasa pada ${formatDateLong(date)}?`;
+    els.checkinMessage.textContent = `Lengkapkan rekod Ramadan tertinggal (${order}/${total}).`;
+
+    if (!els.checkinDialog.open) {
+      els.checkinDialog.showModal();
+    }
+  });
+}
+
+function shouldIncludeTodayInCatchup() {
+  const today = todayInTimezone();
+  const todayPrayer =
+    prayerTimesPayload?.items?.find((item) => normalizeIsoDate(item.date) === today) || null;
+  const maghrib = todayPrayer?.maghrib;
+  if (!maghrib || typeof maghrib !== "string") {
+    return false;
+  }
+
+  const parts = maghrib.split(":");
+  const maghribHour = Number(parts[0]);
+  const maghribMinute = Number(parts[1]);
+  if (!Number.isFinite(maghribHour) || !Number.isFinite(maghribMinute)) {
+    return false;
+  }
+
+  const nowParts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TIMEZONE,
+    hourCycle: "h23",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(new Date());
+
+  const currentHour = Number(nowParts.find((part) => part.type === "hour")?.value);
+  const currentMinute = Number(nowParts.find((part) => part.type === "minute")?.value);
+  if (!Number.isFinite(currentHour) || !Number.isFinite(currentMinute)) {
+    return false;
+  }
+
+  const nowTotal = currentHour * 60 + currentMinute;
+  const maghribTotal = maghribHour * 60 + maghribMinute;
+  return nowTotal >= maghribTotal;
 }
 
 async function renderLogs() {
@@ -277,6 +429,41 @@ async function renderLogs() {
     li.textContent = `${row.date} - ${row.status === "fasting" ? "Puasa" : "Tidak Puasa"}`;
     els.logs.appendChild(li);
   }
+}
+
+async function renderRamadanDayMeta() {
+  if (!els.ramadanDayMeta) return;
+
+  try {
+    const windowData = await getRamadanWindow();
+    const today = todayInTimezone();
+    const start = windowData.start_date;
+    const end = windowData.end_date;
+
+    if (today >= start && today <= end) {
+      const dayNumber = dateRange(start, today).length;
+      els.ramadanDayMeta.textContent = `Today is Day ${dayNumber} of Ramadan.`;
+      return;
+    }
+
+    if (today < start) {
+      els.ramadanDayMeta.textContent = `Ramadan has not started yet. Start date: ${formatDateLong(start)}.`;
+      return;
+    }
+
+    els.ramadanDayMeta.textContent = `Ramadan has ended. End date: ${formatDateLong(end)}.`;
+  } catch (error) {
+    console.error(error);
+    els.ramadanDayMeta.textContent = "Unable to load Ramadan day info.";
+  }
+}
+
+async function getRamadanWindow() {
+  if (ramadanWindowPayload) {
+    return ramadanWindowPayload;
+  }
+  ramadanWindowPayload = await fetchJson(API.ramadanWindow);
+  return ramadanWindowPayload;
 }
 
 async function renderPrayerTimes() {
@@ -330,21 +517,14 @@ function renderPrayerToday(payload) {
     return;
   }
 
-  const prayers = [
-    { label: "Fajr", key: "fajr" },
-    { label: "Sunrise", key: "sunrise" },
-    { label: "Dhuhr", key: "dhuhr" },
-    { label: "Asr", key: "asr" },
-    { label: "Maghrib", key: "maghrib" },
-    { label: "Isha", key: "isha" },
-  ];
+  const prayers = getPrayerFields(payload);
 
   els.prayerTodayView.innerHTML = prayers
     .map(
       (item) => `
         <article class="prayer-item">
           <h3>${item.label}</h3>
-          <p>${formatTime12h(todayRow[item.key])}</p>
+          <p>${formatTimeDisplay(todayRow[item.key])}</p>
         </article>
       `
     )
@@ -353,17 +533,22 @@ function renderPrayerToday(payload) {
 
 function renderPrayerTable(payload) {
   if (!els.prayerTableBody) return;
+  const prayers = getPrayerFields(payload);
+  const todayIso = normalizeIsoDate(payload.today) || todayInTimezone();
+  if (els.prayerTableHeadRow) {
+    els.prayerTableHeadRow.innerHTML = [
+      "<th>Date</th>",
+      ...prayers.map((item) => `<th>${item.label}</th>`),
+    ].join("");
+  }
 
   els.prayerTableBody.innerHTML = payload.items
     .map((item) => {
-      return `<tr>
+      const isToday = normalizeIsoDate(item.date) === todayIso;
+      const cells = prayers.map((prayer) => `<td>${formatTimeDisplay(item[prayer.key])}</td>`).join("");
+      return `<tr class="${isToday ? "prayer-row-today" : ""}">
         <td>${formatDateShort(item.date)}</td>
-        <td>${formatTime12h(item.fajr)}</td>
-        <td>${formatTime12h(item.sunrise)}</td>
-        <td>${formatTime12h(item.dhuhr)}</td>
-        <td>${formatTime12h(item.asr)}</td>
-        <td>${formatTime12h(item.maghrib)}</td>
-        <td>${formatTime12h(item.isha)}</td>
+        ${cells}
       </tr>`;
     })
     .join("");
@@ -371,7 +556,7 @@ function renderPrayerTable(payload) {
 
 async function renderSummary() {
   try {
-    const [windowData, logs] = await Promise.all([fetchJson(API.ramadanWindow), getAllLogs()]);
+    const [windowData, logs] = await Promise.all([getRamadanWindow(), getAllLogs()]);
 
     const start = windowData.start_date;
     const end = windowData.end_date;
@@ -425,6 +610,12 @@ function toIsoDate(dateObj) {
   return dateObj.toISOString().slice(0, 10);
 }
 
+function shiftIsoDate(isoDate, dayDelta) {
+  const base = new Date(`${isoDate}T12:00:00Z`);
+  base.setUTCDate(base.getUTCDate() + dayDelta);
+  return toIsoDate(base);
+}
+
 function todayInTimezone() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: TIMEZONE,
@@ -453,18 +644,41 @@ function formatDateShort(isoDate) {
   }).format(d);
 }
 
-function formatTime12h(value) {
+function getPrayerFields(payload) {
+  if (!payload || !Array.isArray(payload.prayer_fields)) {
+    return DEFAULT_PRAYER_FIELDS;
+  }
+
+  const normalized = payload.prayer_fields
+    .filter((item) => item && typeof item === "object" && typeof item.key === "string")
+    .map((item) => ({
+      key: item.key,
+      label: typeof item.label === "string" && item.label.trim() ? item.label : capitalizePrayerLabel(item.key),
+    }));
+
+  return normalized.length ? normalized : DEFAULT_PRAYER_FIELDS;
+}
+
+function formatTimeDisplay(value) {
   if (!value || typeof value !== "string") return "--";
   const parts = value.split(":");
   if (parts.length < 2) return value;
 
   const hh = Number(parts[0]);
-  const mm = parts[1].padStart(2, "0");
-  if (!Number.isFinite(hh)) return value;
+  const mm = Number(parts[1]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return value;
 
-  const period = hh >= 12 ? "pm" : "am";
-  const hour = ((hh + 11) % 12) + 1;
-  return `${hour}:${mm} ${period}`;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function capitalizePrayerLabel(key) {
+  if (!key || typeof key !== "string") return "";
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+function normalizeIsoDate(value) {
+  if (!value || typeof value !== "string") return "";
+  return value.trim().slice(0, 10);
 }
 
 function base64ToUint8Array(base64String) {

@@ -1,6 +1,7 @@
 backend/.env
 backend/fasting.db
 backend/ramadan_cache.json
+backend/prayer_times_cache.json
 backend/__pycache__/
 frontend/__pycache__/
 .venv/

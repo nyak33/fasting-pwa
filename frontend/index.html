@@ -172,6 +172,12 @@
         color: var(--muted);
       }
 
+      #prayerTable tr.prayer-row-today td {
+        background: #0a6847 !important;
+        color: #ffffff !important;
+        font-weight: 700;
+      }
+
       .small {
         font-size: 0.92rem;
       }
@@ -182,6 +188,7 @@
       <section class="card">
         <h1>Fasting Tracker (Malaysia)</h1>
         <p class="muted">Local-first tracker using IndexedDB. Timezone: Asia/Kuala_Lumpur.</p>
+        <p id="ramadanDayMeta" class="muted">Checking Ramadan day...</p>
         <p id="status">Status: initializing...</p>
         <div class="row">
           <button id="enablePushBtn" class="btn-primary">Enable Push</button>
@@ -205,14 +212,8 @@
         <div id="prayer30View" style="display: none">
           <table id="prayerTable">
             <thead>
-              <tr>
+              <tr id="prayerTableHeadRow">
                 <th>Date</th>
-                <th>Fajr</th>
-                <th>Sunrise</th>
-                <th>Dhuhr</th>
-                <th>Asr</th>
-                <th>Maghrib</th>
-                <th>Isha</th>
               </tr>
             </thead>
             <tbody id="prayerTableBody"></tbody>
@@ -237,6 +238,6 @@
       </div>
     </dialog>
 
-    <script type="module" src="./app.js?v=20260225-4"></script>
+    <script type="module" src="./app.js?v=20260225-7"></script>
   </body>
 </html>

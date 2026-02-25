@@ -20,7 +20,7 @@ CACHE_TTL = timedelta(hours=24)
 
 def _parse_date_token(token: str) -> date | None:
     token = token.strip()
-    fmts = ["%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"]
+    fmts = ["%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d %B %Y", "%d %b %Y"]
     for fmt in fmts:
         try:
             return datetime.strptime(token, fmt).date()
@@ -34,6 +34,10 @@ def _collect_dates(text: str) -> Iterable[date]:
         parsed = _parse_date_token(token)
         if parsed:
             yield parsed
+    for token in re.findall(r"\b\d{1,2}\s+[A-Za-z]{3,}\s+\d{4}\b", text):
+        parsed = _parse_date_token(token)
+        if parsed:
+            yield parsed
 
 
 def _extract_window_from_html(html: str, target_year: int) -> tuple[date, date]:
@@ -41,10 +45,14 @@ def _extract_window_from_html(html: str, target_year: int) -> tuple[date, date]:
     ramadan_dates: list[date] = []
 
     for row in soup.select("tr"):
-        text = " ".join(row.stripped_strings)
-        if not re.search(r"ramad(?:an|han)", text, flags=re.IGNORECASE):
+        cells = list(row.stripped_strings)
+        if not cells:
             continue
-        for parsed in _collect_dates(text):
+        # Only trust rows whose Hijri date column is Ramadan, not descriptions.
+        if not re.search(r"ramad(?:an|han)", cells[0], flags=re.IGNORECASE):
+            continue
+        row_text = " ".join(cells)
+        for parsed in _collect_dates(row_text):
             if parsed.year == target_year:
                 ramadan_dates.append(parsed)
 

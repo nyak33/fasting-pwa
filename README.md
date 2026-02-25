@@ -90,21 +90,26 @@ location.reload();
 
 1. Copy project to `/opt/fasting-pwa`.
 2. Put production `.env` at `/opt/fasting-pwa/backend/.env`.
-3. Set `FRONTEND_BASE_URL` in `.env` to your public frontend URL.
+3. Set `FRONTEND_BASE_URL` and `CORS_ORIGINS` in `.env`:
+
+```env
+FRONTEND_BASE_URL=https://syaqirshaq.online
+CORS_ORIGINS=https://syaqirshaq.online,https://www.syaqirshaq.online
+```
+
 4. Run:
 
 ```bash
 cd /opt/fasting-pwa
+export CERTBOT_EMAIL=you@example.com
 bash ops/server_setup.sh
 ```
-
-5. Copy frontend static files to `/var/www/fasting-pwa/frontend`.
 
 ## GitHub Pages Notes
 
 - Publish `frontend/` as the Pages artifact.
 - Keep `start_url` and `scope` in `manifest.json` as `./`.
-- In `frontend/app.js`, replace `https://REPLACE_WITH_BACKEND_DOMAIN/api` with your backend API base URL.
+- Current frontend already defaults to `https://api.syaqirshaq.online/api` on GitHub Pages.
 - Ensure your backend CORS allow list includes your GitHub Pages domain.
 
 ## Final Checklist Commands

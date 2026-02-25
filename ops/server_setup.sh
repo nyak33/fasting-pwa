@@ -10,6 +10,7 @@ WEB_FRONTEND_DIR="$WEB_ROOT/frontend"
 
 DOMAIN_ROOT="${DOMAIN_ROOT:-syaqirshaq.online}"
 WWW_DOMAIN="${WWW_DOMAIN:-www.syaqirshaq.online}"
+FASTING_DOMAIN="${FASTING_DOMAIN:-fasting.syaqirshaq.online}"
 API_DOMAIN="${API_DOMAIN:-api.syaqirshaq.online}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 
@@ -46,7 +47,7 @@ sudo systemctl restart nginx
 if [[ -n "$CERTBOT_EMAIL" ]]; then
   sudo certbot --nginx --non-interactive --agree-tos --email "$CERTBOT_EMAIL" \
     --cert-name "$API_DOMAIN" --expand \
-    -d "$API_DOMAIN" -d "$DOMAIN_ROOT" -d "$WWW_DOMAIN" --redirect
+    -d "$API_DOMAIN" -d "$DOMAIN_ROOT" -d "$WWW_DOMAIN" -d "$FASTING_DOMAIN" --redirect
 else
   echo "CERTBOT_EMAIL is not set. Skipping TLS provisioning."
   echo "Run certbot manually when DNS propagation is complete."

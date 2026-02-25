@@ -94,7 +94,7 @@ location.reload();
 
 ```env
 FRONTEND_BASE_URL=https://syaqirshaq.online
-CORS_ORIGINS=https://syaqirshaq.online,https://www.syaqirshaq.online
+CORS_ORIGINS=https://syaqirshaq.online,https://www.syaqirshaq.online,https://fasting.syaqirshaq.online
 ```
 
 4. Run:

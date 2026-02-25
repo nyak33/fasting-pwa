@@ -3,11 +3,18 @@
 
 const TIMEZONE = "Asia/Kuala_Lumpur";
 const BASE_PATH = new URL("./", window.location.href).pathname;
-const APP_VERSION = "20260225-2";
+const APP_VERSION = "20260225-3";
+const PROD_BACKEND_BASE = "https://api.syaqirshaq.online/api";
 
 const DEFAULT_BACKEND_BASE = (() => {
-  if (window.location.hostname.endsWith("github.io")) {
-    return "https://api.syaqirshaq.online/api";
+  const host = window.location.hostname;
+  const isProdDomain =
+    host === "syaqirshaq.online" ||
+    host === "www.syaqirshaq.online" ||
+    (host.endsWith(".syaqirshaq.online") && host !== "api.syaqirshaq.online");
+
+  if (host.endsWith("github.io") || isProdDomain) {
+    return PROD_BACKEND_BASE;
   }
   if (window.location.port === "8000") {
     return window.location.origin;

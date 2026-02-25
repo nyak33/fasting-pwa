@@ -3,6 +3,7 @@
 
 const TIMEZONE = "Asia/Kuala_Lumpur";
 const BASE_PATH = new URL("./", window.location.href).pathname;
+const APP_VERSION = "20260225-2";
 
 const DEFAULT_BACKEND_BASE = (() => {
   if (window.location.hostname.endsWith("github.io")) {
@@ -136,7 +137,7 @@ async function registerServiceWorker() {
     throw new Error("Service Worker is not supported in this browser.");
   }
 
-  const swUrl = `${BASE_PATH}sw.js`;
+  const swUrl = `${BASE_PATH}sw.js?v=${APP_VERSION}`;
   await navigator.serviceWorker.register(swUrl, { scope: BASE_PATH });
 }
 

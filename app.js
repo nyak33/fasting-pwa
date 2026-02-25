@@ -27,6 +27,7 @@ const DB_VERSION = 1;
 let dbPromise = null;
 let vapidPublicKey = null;
 let subscriptionEndpoint = null;
+let backendConfigError = null;
 
 const els = {
   status: document.getElementById("status"),
@@ -44,6 +45,12 @@ els.enablePushBtn.addEventListener("click", enablePush);
 els.openSummaryBtn.addEventListener("click", () => {
   window.location.href = `${BASE_PATH}?view=summary`;
 });
+window.addEventListener("focus", syncPushButtonState);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    syncPushButtonState();
+  }
+});
 
 for (const btn of els.checkinDialog.querySelectorAll("button[data-answer]")) {
   btn.addEventListener("click", async () => {
@@ -57,11 +64,16 @@ async function boot() {
   try {
     await getDb();
     await loadSavedMeta();
-    await loadBackendConfig();
     await registerServiceWorker();
+    await loadBackendConfig();
+    syncPushButtonState();
     await renderLogs();
     await renderRoute();
-    setStatus(`Ready. Backend: ${BACKEND_BASE}`);
+    if (backendConfigError) {
+      setStatus(`Ready with limited push setup: ${backendConfigError.message}`);
+    } else {
+      setStatus(`Ready. Backend: ${BACKEND_BASE}`);
+    }
   } catch (error) {
     console.error(error);
     setStatus(`Error: ${error.message}`);
@@ -105,12 +117,18 @@ async function renderRoute() {
 }
 
 async function loadBackendConfig() {
-  const response = await fetch(API.config);
-  if (!response.ok) {
-    throw new Error(`Cannot load backend config (${response.status}).`);
+  try {
+    const response = await fetch(API.config);
+    if (!response.ok) {
+      throw new Error(`Cannot load backend config (${response.status}).`);
+    }
+    const data = await response.json();
+    vapidPublicKey = data.vapidPublicKey;
+    backendConfigError = null;
+  } catch (error) {
+    backendConfigError = error;
+    vapidPublicKey = null;
   }
-  const data = await response.json();
-  vapidPublicKey = data.vapidPublicKey;
 }
 
 async function registerServiceWorker() {
@@ -123,42 +141,61 @@ async function registerServiceWorker() {
 }
 
 async function enablePush() {
-  if (!("Notification" in window) || !("PushManager" in window)) {
-    setStatus("Push is not supported in this browser.");
+  const supportError = getPushSupportError();
+  if (supportError) {
+    setStatus(supportError);
     return;
   }
 
-  const permission = await Notification.requestPermission();
-  if (permission !== "granted") {
-    setStatus("Notification permission was not granted.");
-    return;
+  try {
+    if (!vapidPublicKey) {
+      throw new Error("Backend config missing VAPID key. Check API /config and CORS.");
+    }
+
+    setStatus("Requesting notification permission...");
+    const permission = await Notification.requestPermission();
+    if (permission === "default") {
+      setStatus("Permission prompt was dismissed. Tap Enable Push again and choose Allow.");
+      syncPushButtonState();
+      return;
+    }
+
+    if (permission === "denied") {
+      setStatus("Notifications are blocked. Open browser site settings and set Notifications to Allow.");
+      syncPushButtonState();
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.ready;
+    const existing = await registration.pushManager.getSubscription();
+    const subscription =
+      existing ||
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: base64ToUint8Array(vapidPublicKey),
+      }));
+
+    subscriptionEndpoint = subscription.endpoint;
+    await setMeta("subscriptionEndpoint", subscriptionEndpoint);
+
+    const response = await fetch(API.subscribe, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription: subscription.toJSON(),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Subscribe failed (${response.status}).`);
+    }
+
+    setStatus("Push enabled and subscription saved.");
+    syncPushButtonState();
+  } catch (error) {
+    console.error(error);
+    setStatus(`Enable Push failed: ${error.message}`);
   }
-
-  const registration = await navigator.serviceWorker.ready;
-  const existing = await registration.pushManager.getSubscription();
-  const subscription =
-    existing ||
-    (await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: base64ToUint8Array(vapidPublicKey),
-    }));
-
-  subscriptionEndpoint = subscription.endpoint;
-  await setMeta("subscriptionEndpoint", subscriptionEndpoint);
-
-  const response = await fetch(API.subscribe, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      subscription: subscription.toJSON(),
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Subscribe failed (${response.status}).`);
-  }
-
-  setStatus("Push enabled and subscription saved.");
 }
 
 async function answerCheckin(answer) {
@@ -367,4 +404,45 @@ async function getMeta(key) {
 
 async function loadSavedMeta() {
   subscriptionEndpoint = await getMeta("subscriptionEndpoint");
+}
+
+function syncPushButtonState() {
+  const supportError = getPushSupportError();
+  const canEnable = !supportError && !!vapidPublicKey;
+  els.enablePushBtn.disabled = !canEnable;
+  if (supportError) {
+    els.enablePushBtn.title = supportError;
+  } else if (!vapidPublicKey) {
+    els.enablePushBtn.title = "Missing backend VAPID config.";
+  } else {
+    els.enablePushBtn.title = "";
+  }
+}
+
+function getPushSupportError() {
+  if (!window.isSecureContext) {
+    return "Push requires HTTPS (or localhost).";
+  }
+
+  if (!("Notification" in window) || !("PushManager" in window)) {
+    return "Push is not supported in this browser.";
+  }
+
+  if (isIosBrowser() && !isStandaloneDisplayMode()) {
+    return "On iPhone/iPad, install this app to Home Screen to enable push.";
+  }
+
+  if (Notification.permission === "denied") {
+    return "Notifications are blocked. Open browser site settings and set Notifications to Allow.";
+  }
+
+  return null;
+}
+
+function isIosBrowser() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent);
+}
+
+function isStandaloneDisplayMode() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
 }

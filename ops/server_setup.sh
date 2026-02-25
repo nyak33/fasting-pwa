@@ -45,7 +45,8 @@ sudo systemctl restart nginx
 
 if [[ -n "$CERTBOT_EMAIL" ]]; then
   sudo certbot --nginx --non-interactive --agree-tos --email "$CERTBOT_EMAIL" \
-    -d "$DOMAIN_ROOT" -d "$WWW_DOMAIN" -d "$API_DOMAIN" --redirect
+    --cert-name "$API_DOMAIN" --expand \
+    -d "$API_DOMAIN" -d "$DOMAIN_ROOT" -d "$WWW_DOMAIN" --redirect
 else
   echo "CERTBOT_EMAIL is not set. Skipping TLS provisioning."
   echo "Run certbot manually when DNS propagation is complete."

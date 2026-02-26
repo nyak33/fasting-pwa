@@ -5,7 +5,7 @@
 
 const TIMEZONE = "Asia/Kuala_Lumpur";
 const BASE_PATH = new URL("./", window.location.href).pathname;
-const APP_VERSION = "20260226-13";
+const APP_VERSION = "20260226-14";
 const PROD_BACKEND_BASE = "https://api.syaqirshaq.online/api";
 
 const RAMADAN_YEAR_CONFIG = {
@@ -37,6 +37,7 @@ const API = {
   subscribe: `${BACKEND_BASE}/subscribe`,
   checkin: `${BACKEND_BASE}/checkin`,
   prayerTimes: `${BACKEND_BASE}/prayer-times`,
+  notificationSettings: `${BACKEND_BASE}/notification-settings`,
 };
 
 const DEFAULT_PRAYER_FIELDS = [
@@ -48,7 +49,11 @@ const DEFAULT_PRAYER_FIELDS = [
   { key: "sunset", label: "Sunset" },
   { key: "maghrib", label: "Maghrib" },
   { key: "isha", label: "Isha" },
-  { key: "midnight", label: "Midnight" },
+];
+const DEFAULT_REMINDER_SLOTS = [
+  { type: "fixed", time: "09:00" },
+  { type: "fixed", time: "13:30" },
+  { type: "fixed", time: "18:00" },
 ];
 
 const DB_NAME = "fasting-pwa-db";
@@ -75,6 +80,7 @@ const state = {
   activeStatus: null,
   activeTag: null,
   pendingCheckinRequest: null,
+  reminderSlots: [...DEFAULT_REMINDER_SLOTS],
 };
 
 const els = {
@@ -115,6 +121,9 @@ const els = {
   prayerTableHeadRow: document.getElementById("prayerTableHeadRow"),
   prayerTableBody: document.getElementById("prayerTableBody"),
   prayerFooter: document.getElementById("prayerFooter"),
+  reminderSlots: document.getElementById("reminderSlots"),
+  saveReminderSettingsBtn: document.getElementById("saveReminderSettingsBtn"),
+  reminderSettingsStatus: document.getElementById("reminderSettingsStatus"),
 };
 
 setupEventListeners();
@@ -173,11 +182,201 @@ function setupEventListeners() {
 
   els.prayerTodayTab?.addEventListener("click", () => setPrayerViewMode("today"));
   els.prayer30Tab?.addEventListener("click", () => setPrayerViewMode("days30"));
+  setupReminderEditorListeners();
+  els.saveReminderSettingsBtn?.addEventListener("click", saveReminderSettings);
 
   window.addEventListener("focus", syncPushButtonState);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) syncPushButtonState();
   });
+}
+
+function getReminderSlotEditors() {
+  if (!els.reminderSlots) return [];
+  return Array.from(els.reminderSlots.querySelectorAll(".reminder-slot"));
+}
+
+function setupReminderEditorListeners() {
+  for (const slotEl of getReminderSlotEditors()) {
+    const typeSelect = slotEl.querySelector("[data-slot-type]");
+    typeSelect?.addEventListener("change", () => syncReminderSlotVisibility(slotEl));
+  }
+}
+
+function syncReminderSlotVisibility(slotEl) {
+  const typeSelect = slotEl.querySelector("[data-slot-type]");
+  const selected = String(typeSelect?.value || "fixed");
+  for (const fixedWrap of slotEl.querySelectorAll("[data-fixed-wrap]")) {
+    fixedWrap.style.display = selected === "fixed" ? "grid" : "none";
+  }
+  for (const prayerWrap of slotEl.querySelectorAll("[data-prayer-wrap]")) {
+    prayerWrap.style.display = selected === "prayer" ? "grid" : "none";
+  }
+}
+
+function setReminderStatus(message, isError = false) {
+  if (!els.reminderSettingsStatus) return;
+  els.reminderSettingsStatus.textContent = message;
+  els.reminderSettingsStatus.style.color = isError ? "#b23a3a" : "";
+}
+
+function initReminderEditors() {
+  applyReminderSlotsToEditors(DEFAULT_REMINDER_SLOTS);
+  syncReminderAuthState();
+}
+
+function syncReminderAuthState() {
+  const loggedIn = !!sessionToken && !!currentUser?.email;
+  if (els.saveReminderSettingsBtn) {
+    els.saveReminderSettingsBtn.disabled = !loggedIn;
+  }
+  if (!loggedIn) {
+    setReminderStatus("Login required to save notification settings.");
+  }
+}
+
+function applyReminderSlotsToEditors(slots) {
+  const normalized = normalizeReminderSlots(slots);
+  state.reminderSlots = normalized;
+
+  const editors = getReminderSlotEditors();
+  editors.forEach((slotEl, index) => {
+    const slot = normalized[index] || DEFAULT_REMINDER_SLOTS[index] || DEFAULT_REMINDER_SLOTS[0];
+    const typeSelect = slotEl.querySelector("[data-slot-type]");
+    const timeInput = slotEl.querySelector("[data-slot-time]");
+    const prayerSelect = slotEl.querySelector("[data-slot-prayer]");
+    const offsetInput = slotEl.querySelector("[data-slot-offset]");
+
+    if (typeSelect) typeSelect.value = slot.type;
+    if (timeInput) timeInput.value = slot.type === "fixed" ? slot.time : "09:00";
+    if (prayerSelect) prayerSelect.value = slot.type === "prayer" ? slot.prayer : "maghrib";
+    if (offsetInput) offsetInput.value = String(slot.type === "prayer" ? slot.offset_minutes : 0);
+    syncReminderSlotVisibility(slotEl);
+  });
+}
+
+function normalizeReminderSlots(raw) {
+  if (!Array.isArray(raw)) return [...DEFAULT_REMINDER_SLOTS];
+  const out = [];
+  for (const item of raw.slice(0, 3)) {
+    if (!item || typeof item !== "object") continue;
+    const type = String(item.type || "").trim().toLowerCase();
+    if (type === "fixed") {
+      const hhmm = normalizeHhmm(item.time);
+      if (!hhmm) continue;
+      out.push({ type: "fixed", time: hhmm });
+      continue;
+    }
+    if (type === "prayer") {
+      const prayer = String(item.prayer || "").trim().toLowerCase();
+      if (!["imsak", "fajr", "sunrise", "dhuhr", "asr", "sunset", "maghrib", "isha"].includes(prayer)) {
+        continue;
+      }
+      let offset = Number(item.offset_minutes);
+      if (!Number.isInteger(offset)) offset = 0;
+      offset = Math.max(-180, Math.min(180, offset));
+      out.push({ type: "prayer", prayer, offset_minutes: offset });
+    }
+  }
+  return out.length ? out : [...DEFAULT_REMINDER_SLOTS];
+}
+
+function normalizeHhmm(value) {
+  if (typeof value !== "string") return "";
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return "";
+  const hh = Number(match[1]);
+  const mm = Number(match[2]);
+  if (!Number.isInteger(hh) || !Number.isInteger(mm)) return "";
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return "";
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function collectReminderSlotsFromEditors() {
+  const slots = [];
+  for (const slotEl of getReminderSlotEditors()) {
+    const type = String(slotEl.querySelector("[data-slot-type]")?.value || "fixed");
+    if (type === "fixed") {
+      const hhmm = normalizeHhmm(String(slotEl.querySelector("[data-slot-time]")?.value || ""));
+      if (!hhmm) {
+        setReminderStatus("Please set a valid HH:MM time for all manual slots.", true);
+        return null;
+      }
+      slots.push({ type: "fixed", time: hhmm });
+      continue;
+    }
+
+    const prayer = String(slotEl.querySelector("[data-slot-prayer]")?.value || "").trim().toLowerCase();
+    if (!["imsak", "fajr", "sunrise", "dhuhr", "asr", "sunset", "maghrib", "isha"].includes(prayer)) {
+      setReminderStatus("Please select a valid prayer for each prayer-based slot.", true);
+      return null;
+    }
+    let offset = Number(slotEl.querySelector("[data-slot-offset]")?.value || 0);
+    if (!Number.isInteger(offset)) {
+      setReminderStatus("Offset must be a whole number of minutes.", true);
+      return null;
+    }
+    offset = Math.max(-180, Math.min(180, offset));
+    slots.push({ type: "prayer", prayer, offset_minutes: offset });
+  }
+  return slots.slice(0, 3);
+}
+
+async function loadReminderSettings() {
+  if (!sessionToken) {
+    applyReminderSlotsToEditors(DEFAULT_REMINDER_SLOTS);
+    syncReminderAuthState();
+    return;
+  }
+
+  try {
+    const response = await fetch(API.notificationSettings, { headers: authHeaders() });
+    if (response.status === 401) {
+      await logout();
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(`Unable to load reminder settings (${response.status}).`);
+    }
+    const data = await response.json();
+    const slots = normalizeReminderSlots(data?.settings?.slots);
+    applyReminderSlotsToEditors(slots);
+    setReminderStatus("Reminder settings loaded.");
+  } catch (error) {
+    setReminderStatus(`Unable to load reminder settings: ${error.message}`, true);
+  } finally {
+    syncReminderAuthState();
+  }
+}
+
+async function saveReminderSettings() {
+  if (!sessionToken) {
+    setReminderStatus("Login required to save notification settings.", true);
+    return;
+  }
+
+  const slots = collectReminderSlotsFromEditors();
+  if (!slots) return;
+
+  try {
+    const response = await fetch(API.notificationSettings, {
+      method: "PUT",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ slots }),
+    });
+    if (response.status === 401) {
+      await logout();
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(`Save failed (${response.status}).`);
+    }
+    const data = await response.json();
+    applyReminderSlotsToEditors(normalizeReminderSlots(data?.settings?.slots));
+    setReminderStatus("Reminder settings saved.");
+  } catch (error) {
+    setReminderStatus(`Unable to save settings: ${error.message}`, true);
+  }
 }
 
 async function boot() {
@@ -189,6 +388,8 @@ async function boot() {
     await initLocationPermissionAndRefresh();
     await restoreSession();
     renderAuthState();
+    initReminderEditors();
+    await loadReminderSettings();
     initGoogleSignIn();
     syncPushButtonState();
 
@@ -758,12 +959,14 @@ function renderAuthState() {
     els.authMeta.textContent = `Masuk sebagai ${name}. (Signed in)`;
     els.googleSignIn.style.display = "none";
     els.logoutBtn.style.display = "inline-block";
+    syncReminderAuthState();
     return;
   }
 
   els.authMeta.textContent = "Log masuk Google diperlukan untuk sync push. (Google login required for push sync.)";
   els.googleSignIn.style.display = "block";
   els.logoutBtn.style.display = "none";
+  syncReminderAuthState();
 }
 
 function initGoogleSignIn() {
@@ -782,6 +985,7 @@ function initGoogleSignIn() {
         try {
           await loginWithGoogleCredential(response?.credential || "");
           renderAuthState();
+          await loadReminderSettings();
           syncPushButtonState();
           setStatus("Log masuk Google berjaya. (Google login successful.)");
         } catch (error) {
@@ -853,6 +1057,7 @@ async function logout() {
     await setMeta("sessionToken", null);
     await setMeta("currentUser", null);
     renderAuthState();
+    applyReminderSlotsToEditors(DEFAULT_REMINDER_SLOTS);
     initGoogleSignIn();
     syncPushButtonState();
     setStatus("Log keluar berjaya. (Logged out.)");
@@ -1294,7 +1499,13 @@ function getPrayerFields(payload) {
   if (!payload || !Array.isArray(payload.prayer_fields)) return DEFAULT_PRAYER_FIELDS;
 
   const normalized = payload.prayer_fields
-    .filter((item) => item && typeof item === "object" && typeof item.key === "string")
+    .filter(
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        typeof item.key === "string" &&
+        String(item.key).toLowerCase() !== "midnight"
+    )
     .map((item) => ({
       key: item.key,
       label: typeof item.label === "string" && item.label.trim() ? item.label : capitalizePrayerLabel(item.key),

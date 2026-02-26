@@ -33,6 +33,7 @@ def init_db() -> None:
                 name TEXT,
                 picture TEXT,
                 last_answered_date TEXT,
+                notification_settings_json TEXT,
                 updated_at TEXT NOT NULL
             )
             """
@@ -67,9 +68,27 @@ def init_db() -> None:
             """
         )
         conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS reminder_delivery_log (
+                user_sub TEXT NOT NULL,
+                date_iso TEXT NOT NULL,
+                slot_index INTEGER NOT NULL,
+                sent_at TEXT NOT NULL,
+                PRIMARY KEY (user_sub, date_iso, slot_index)
+            )
+            """
+        )
+        user_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "notification_settings_json" not in user_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN notification_settings_json TEXT")
+
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_subscriptions_user_sub ON subscriptions(user_sub)"
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reminder_delivery_date ON reminder_delivery_log(date_iso)"
+        )
         conn.commit()
 
 
@@ -101,7 +120,7 @@ def get_user(google_sub: str) -> dict[str, Any] | None:
     with _connect() as conn:
         row = conn.execute(
             """
-            SELECT google_sub, email, name, picture, last_answered_date, updated_at
+            SELECT google_sub, email, name, picture, last_answered_date, notification_settings_json, updated_at
             FROM users
             WHERE google_sub = ?
             """,
@@ -136,13 +155,66 @@ def list_subscriptions() -> list[dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT s.endpoint, s.p256dh, s.auth, s.user_sub, u.last_answered_date
+            SELECT
+                s.endpoint,
+                s.p256dh,
+                s.auth,
+                s.user_sub,
+                u.last_answered_date,
+                u.notification_settings_json
             FROM subscriptions s
             INNER JOIN users u ON s.user_sub = u.google_sub
             """
         ).fetchall()
 
     return [dict(row) for row in rows]
+
+
+def update_notification_settings_for_user(google_sub: str, settings_json: str) -> bool:
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            UPDATE users
+            SET notification_settings_json = ?, updated_at = ?
+            WHERE google_sub = ?
+            """,
+            (settings_json, _utc_now_iso(), google_sub),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def was_reminder_sent(user_sub: str, date_iso: str, slot_index: int) -> bool:
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM reminder_delivery_log
+            WHERE user_sub = ? AND date_iso = ? AND slot_index = ?
+            LIMIT 1
+            """,
+            (user_sub, date_iso, slot_index),
+        ).fetchone()
+    return row is not None
+
+
+def mark_reminder_sent(user_sub: str, date_iso: str, slot_index: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO reminder_delivery_log (user_sub, date_iso, slot_index, sent_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_sub, date_iso, slot_index, _utc_now_iso()),
+        )
+        conn.commit()
+
+
+def cleanup_old_reminder_logs(keep_days: int = 14) -> None:
+    threshold = (datetime.utcnow() - timedelta(days=max(1, keep_days))).date().isoformat()
+    with _connect() as conn:
+        conn.execute("DELETE FROM reminder_delivery_log WHERE date_iso < ?", (threshold,))
+        conn.commit()
 
 
 def update_last_answered_date_for_user(google_sub: str, date_iso: str) -> bool:
@@ -208,7 +280,8 @@ def get_user_by_session(token: str) -> dict[str, Any] | None:
                 u.email,
                 u.name,
                 u.picture,
-                u.last_answered_date
+                u.last_answered_date,
+                u.notification_settings_json
             FROM sessions s
             INNER JOIN users u ON s.google_sub = u.google_sub
             WHERE s.token = ?

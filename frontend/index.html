@@ -356,6 +356,26 @@
         overflow-x: auto;
       }
 
+      .reminder-slots {
+        display: grid;
+        gap: 10px;
+      }
+
+      .reminder-slot {
+        border: 1px solid #d7e8df;
+        border-radius: 10px;
+        padding: 10px;
+        background: #fff;
+        display: grid;
+        gap: 8px;
+      }
+
+      .reminder-inline {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 8px;
+      }
+
       table.summary-table {
         width: 100%;
         border-collapse: collapse;
@@ -503,6 +523,120 @@
         <p id="prayerFooter" class="muted small"></p>
       </section>
 
+      <section class="card" id="reminderPanel">
+        <h2>Tetapan Notifikasi (Notification Settings)</h2>
+        <p class="muted">
+          Set sehingga 3 waktu notifikasi sehari. (Set up to 3 reminders per day.)
+        </p>
+        <div id="reminderSlots" class="reminder-slots">
+          <article class="reminder-slot" data-slot-index="0">
+            <strong>Slot 1</strong>
+            <div class="reminder-inline">
+              <div class="field">
+                <label for="slotType0">Jenis (Type)</label>
+                <select id="slotType0" data-slot-type>
+                  <option value="fixed">Manual time</option>
+                  <option value="prayer">Prayer based</option>
+                </select>
+              </div>
+              <div class="field" data-fixed-wrap>
+                <label for="slotTime0">Masa (Time)</label>
+                <input id="slotTime0" data-slot-time type="time" />
+              </div>
+              <div class="field" data-prayer-wrap style="display: none">
+                <label for="slotPrayer0">Waktu solat (Prayer)</label>
+                <select id="slotPrayer0" data-slot-prayer>
+                  <option value="imsak">Imsak</option>
+                  <option value="fajr">Fajr</option>
+                  <option value="sunrise">Sunrise</option>
+                  <option value="dhuhr">Dhuhr</option>
+                  <option value="asr">Asr</option>
+                  <option value="sunset">Sunset</option>
+                  <option value="maghrib">Maghrib</option>
+                  <option value="isha">Isha</option>
+                </select>
+              </div>
+              <div class="field" data-prayer-wrap style="display: none">
+                <label for="slotOffset0">Offset minit (minutes)</label>
+                <input id="slotOffset0" data-slot-offset type="number" min="-180" max="180" step="1" />
+              </div>
+            </div>
+          </article>
+          <article class="reminder-slot" data-slot-index="1">
+            <strong>Slot 2</strong>
+            <div class="reminder-inline">
+              <div class="field">
+                <label for="slotType1">Jenis (Type)</label>
+                <select id="slotType1" data-slot-type>
+                  <option value="fixed">Manual time</option>
+                  <option value="prayer">Prayer based</option>
+                </select>
+              </div>
+              <div class="field" data-fixed-wrap>
+                <label for="slotTime1">Masa (Time)</label>
+                <input id="slotTime1" data-slot-time type="time" />
+              </div>
+              <div class="field" data-prayer-wrap style="display: none">
+                <label for="slotPrayer1">Waktu solat (Prayer)</label>
+                <select id="slotPrayer1" data-slot-prayer>
+                  <option value="imsak">Imsak</option>
+                  <option value="fajr">Fajr</option>
+                  <option value="sunrise">Sunrise</option>
+                  <option value="dhuhr">Dhuhr</option>
+                  <option value="asr">Asr</option>
+                  <option value="sunset">Sunset</option>
+                  <option value="maghrib">Maghrib</option>
+                  <option value="isha">Isha</option>
+                </select>
+              </div>
+              <div class="field" data-prayer-wrap style="display: none">
+                <label for="slotOffset1">Offset minit (minutes)</label>
+                <input id="slotOffset1" data-slot-offset type="number" min="-180" max="180" step="1" />
+              </div>
+            </div>
+          </article>
+          <article class="reminder-slot" data-slot-index="2">
+            <strong>Slot 3</strong>
+            <div class="reminder-inline">
+              <div class="field">
+                <label for="slotType2">Jenis (Type)</label>
+                <select id="slotType2" data-slot-type>
+                  <option value="fixed">Manual time</option>
+                  <option value="prayer">Prayer based</option>
+                </select>
+              </div>
+              <div class="field" data-fixed-wrap>
+                <label for="slotTime2">Masa (Time)</label>
+                <input id="slotTime2" data-slot-time type="time" />
+              </div>
+              <div class="field" data-prayer-wrap style="display: none">
+                <label for="slotPrayer2">Waktu solat (Prayer)</label>
+                <select id="slotPrayer2" data-slot-prayer>
+                  <option value="imsak">Imsak</option>
+                  <option value="fajr">Fajr</option>
+                  <option value="sunrise">Sunrise</option>
+                  <option value="dhuhr">Dhuhr</option>
+                  <option value="asr">Asr</option>
+                  <option value="sunset">Sunset</option>
+                  <option value="maghrib">Maghrib</option>
+                  <option value="isha">Isha</option>
+                </select>
+              </div>
+              <div class="field" data-prayer-wrap style="display: none">
+                <label for="slotOffset2">Offset minit (minutes)</label>
+                <input id="slotOffset2" data-slot-offset type="number" min="-180" max="180" step="1" />
+              </div>
+            </div>
+          </article>
+        </div>
+        <div class="row" style="margin-top: 10px">
+          <button id="saveReminderSettingsBtn" class="btn-primary" type="button">
+            Simpan Tetapan (Save Settings)
+          </button>
+        </div>
+        <p id="reminderSettingsStatus" class="muted small"></p>
+      </section>
+
     </main>
 
     <dialog id="checkinDialog">
@@ -544,6 +678,6 @@
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script type="module" src="./app.js?v=20260226-13"></script>
+    <script type="module" src="./app.js?v=20260226-14"></script>
   </body>
 </html>

@@ -47,7 +47,6 @@ PRAYER_FIELDS = [
     {"key": "sunset", "label": "Sunset"},
     {"key": "maghrib", "label": "Maghrib"},
     {"key": "isha", "label": "Isha"},
-    {"key": "midnight", "label": "Midnight"},
 ]
 
 

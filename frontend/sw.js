@@ -1,8 +1,8 @@
 ﻿// Version History
 // v1.0 - Service worker for push notifications and deep-link navigation.
 
-const APP_CACHE = "fasting-pwa-v13";
-const APP_ASSETS = ["./", "./index.html", "./app.js?v=20260226-13", "./manifest.json"];
+const APP_CACHE = "fasting-pwa-v14";
+const APP_ASSETS = ["./", "./index.html", "./app.js?v=20260226-14", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

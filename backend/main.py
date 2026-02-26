@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
@@ -21,6 +22,7 @@ from db import (
     get_user,
     get_user_by_session,
     init_db,
+    update_notification_settings_for_user,
     update_last_answered_date_for_user,
     upsert_subscription,
     upsert_user,
@@ -32,6 +34,12 @@ from scheduler import build_scheduler
 load_dotenv()
 
 TIMEZONE = ZoneInfo("Asia/Kuala_Lumpur")
+VALID_PRAYER_KEYS = {"imsak", "fajr", "sunrise", "dhuhr", "asr", "sunset", "maghrib", "isha"}
+DEFAULT_REMINDER_SLOTS = [
+    {"type": "fixed", "time": "09:00"},
+    {"type": "fixed", "time": "13:30"},
+    {"type": "fixed", "time": "18:00"},
+]
 
 
 @dataclass(frozen=True)
@@ -124,6 +132,64 @@ class CheckInRequest(BaseModel):
 
 class GoogleAuthRequest(BaseModel):
     credential: str = Field(..., min_length=20)
+
+
+class NotificationSettingsRequest(BaseModel):
+    slots: list[dict] = Field(default_factory=list)
+
+
+def _parse_hhmm(value: str) -> str | None:
+    try:
+        token = (value or "").strip()
+        hh, mm = token.split(":")
+        hour = int(hh)
+        minute = int(mm)
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f"{hour:02d}:{minute:02d}"
+    except Exception:
+        return None
+    return None
+
+
+def _normalize_notification_slots(raw_slots: object) -> list[dict]:
+    if not isinstance(raw_slots, list):
+        return DEFAULT_REMINDER_SLOTS
+
+    out: list[dict] = []
+    for item in raw_slots[:3]:
+        if not isinstance(item, dict):
+            continue
+
+        slot_type = str(item.get("type") or "").strip().lower()
+        if slot_type == "fixed":
+            hhmm = _parse_hhmm(str(item.get("time") or ""))
+            if hhmm:
+                out.append({"type": "fixed", "time": hhmm})
+            continue
+
+        if slot_type == "prayer":
+            prayer = str(item.get("prayer") or "").strip().lower()
+            if prayer not in VALID_PRAYER_KEYS:
+                continue
+            try:
+                offset = int(item.get("offset_minutes", 0))
+            except (TypeError, ValueError):
+                offset = 0
+            offset = max(-180, min(180, offset))
+            out.append({"type": "prayer", "prayer": prayer, "offset_minutes": offset})
+
+    return out if out else DEFAULT_REMINDER_SLOTS
+
+
+def _load_notification_slots(settings_json: str | None) -> list[dict]:
+    if not settings_json:
+        return DEFAULT_REMINDER_SLOTS
+    try:
+        parsed = json.loads(settings_json)
+    except Exception:
+        return DEFAULT_REMINDER_SLOTS
+    slots = parsed.get("slots") if isinstance(parsed, dict) else None
+    return _normalize_notification_slots(slots)
 
 
 def _verify_google_credential(credential: str) -> dict:
@@ -252,6 +318,7 @@ def auth_logout(user: dict = Depends(require_user)) -> dict:
 
 @app.get("/me")
 def me(user: dict = Depends(require_user)) -> dict:
+    notification_slots = _load_notification_slots(user.get("notification_settings_json"))
     return {
         "ok": True,
         "user": {
@@ -261,6 +328,7 @@ def me(user: dict = Depends(require_user)) -> dict:
             "picture": user.get("picture"),
             "lastAnsweredDate": user.get("last_answered_date"),
             "sessionExpiresAt": user.get("expires_at"),
+            "notificationSettings": {"slots": notification_slots},
         },
     }
 
@@ -269,6 +337,26 @@ def me(user: dict = Depends(require_user)) -> dict:
 def subscribe(payload: SubscribeRequest, user: dict = Depends(require_user)) -> dict:
     upsert_subscription(payload.subscription.model_dump(), user["google_sub"])
     return {"ok": True}
+
+
+@app.get("/notification-settings")
+def get_notification_settings(user: dict = Depends(require_user)) -> dict:
+    current = get_user(user["google_sub"])
+    slots = _load_notification_slots((current or {}).get("notification_settings_json"))
+    return {"ok": True, "settings": {"slots": slots}}
+
+
+@app.put("/notification-settings")
+def put_notification_settings(
+    payload: NotificationSettingsRequest,
+    user: dict = Depends(require_user),
+) -> dict:
+    slots = _normalize_notification_slots(payload.slots)
+    settings_json = json.dumps({"slots": slots}, separators=(",", ":"))
+    updated = update_notification_settings_for_user(user["google_sub"], settings_json)
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"ok": True, "settings": {"slots": slots}}
 
 
 @app.post("/checkin")

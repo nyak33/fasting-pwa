@@ -5,7 +5,7 @@
 
 const TIMEZONE = "Asia/Kuala_Lumpur";
 const BASE_PATH = new URL("./", window.location.href).pathname;
-const APP_VERSION = "20260226-16";
+const APP_VERSION = "20260226-17";
 const PROD_BACKEND_BASE = "https://api.syaqirshaq.online/api";
 
 const RAMADAN_YEAR_CONFIG = {
@@ -84,6 +84,7 @@ const state = {
   pendingCheckinRequest: null,
   reminderSlots: [...DEFAULT_REMINDER_SLOTS],
   reminderSlotCount: 3,
+  activeCalendarFilter: null,
 };
 
 const els = {
@@ -105,6 +106,8 @@ const els = {
   monthNextBtn: document.getElementById("monthNextBtn"),
   calendarMonthLabel: document.getElementById("calendarMonthLabel"),
   calendarGrid: document.getElementById("calendarGrid"),
+  calendarFilterStatus: document.getElementById("calendarFilterStatus"),
+  clearCalendarFilterBtn: document.getElementById("clearCalendarFilterBtn"),
   ramadanSummaryBody: document.getElementById("ramadanSummaryBody"),
   gantiSummaryBody: document.getElementById("gantiSummaryBody"),
   summarySection: document.getElementById("summarySection"),
@@ -185,6 +188,16 @@ function setupEventListeners() {
   els.overrideSaveBtn?.addEventListener("click", saveOverride);
   els.overrideCancelBtn?.addEventListener("click", () => els.overrideDialog?.close());
   els.overrideClearBtn?.addEventListener("click", clearOverrideForFormYear);
+  els.ramadanSummaryBody?.addEventListener("click", (event) => {
+    const target = event.target.closest("button[data-calendar-filter]");
+    if (!target) return;
+    const filter = String(target.dataset.calendarFilter || "");
+    toggleCalendarFilter(filter);
+  });
+  els.clearCalendarFilterBtn?.addEventListener("click", () => {
+    state.activeCalendarFilter = null;
+    renderAll();
+  });
 
   els.prayerTodayTab?.addEventListener("click", () => setPrayerViewMode("today"));
   els.prayer30Tab?.addEventListener("click", () => setPrayerViewMode("days30"));
@@ -538,6 +551,8 @@ function renderCalendar() {
       const inWindow = isWithinRamadanWindow(cell.iso, state.selectedRamadanYear);
       const isFuture = cell.iso > todayIso;
       const log = isFuture ? null : state.logsByDate.get(cell.iso);
+      const shouldShowUnknown = inWindow && !log && cell.iso <= todayIso;
+      const matchesFilter = matchesCalendarFilter(cell.iso, log, inWindow, todayIso);
       let mark = "&nbsp;";
       let markClass = "day-mark";
 
@@ -547,7 +562,7 @@ function renderCalendar() {
       } else if (log?.status === "not_fasted") {
         mark = "&#10007;";
         markClass += " not-fasted";
-      } else if (inWindow) {
+      } else if (shouldShowUnknown) {
         mark = "?";
         markClass += " unknown";
       }
@@ -557,6 +572,7 @@ function renderCalendar() {
         cell.isCurrentMonth ? "" : "outside-month",
         inWindow ? "in-ramadan" : "",
         isFuture ? "future-date" : "",
+        state.activeCalendarFilter ? (matchesFilter ? "filter-match" : "filtered-out") : "",
       ]
         .filter(Boolean)
         .join(" ");
@@ -618,10 +634,23 @@ function renderRamadanSummaryTable() {
 
   els.ramadanSummaryBody.innerHTML = `<tr>
     <td><strong>Ramadhan ${year} (${range})</strong></td>
-    <td><strong>${summary.completedLogged}</strong></td>
-    <td><strong>${summary.missedLogged}</strong></td>
-    <td><strong>${summary.unlogged}</strong></td>
+    <td>
+      <button class="summary-filter-btn ${state.activeCalendarFilter === "fasted" ? "active" : ""}" type="button" data-calendar-filter="fasted">
+        ${summary.completedLogged}
+      </button>
+    </td>
+    <td>
+      <button class="summary-filter-btn ${state.activeCalendarFilter === "not_fasted" ? "active" : ""}" type="button" data-calendar-filter="not_fasted">
+        ${summary.missedLogged}
+      </button>
+    </td>
+    <td>
+      <button class="summary-filter-btn ${state.activeCalendarFilter === "unknown" ? "active" : ""}" type="button" data-calendar-filter="unknown">
+        ${summary.unlogged}
+      </button>
+    </td>
   </tr>`;
+  renderCalendarFilterStatus();
 }
 
 function renderGantiSummaryTable() {
@@ -661,6 +690,52 @@ function openDayDialog(dateIso, options = {}) {
 
   renderTagSection();
   if (!els.checkinDialog.open) els.checkinDialog.showModal();
+}
+
+function toggleCalendarFilter(filter) {
+  if (!["fasted", "not_fasted", "unknown"].includes(filter)) {
+    return;
+  }
+  state.activeCalendarFilter = state.activeCalendarFilter === filter ? null : filter;
+  renderAll();
+}
+
+function matchesCalendarFilter(dateIso, log, inWindow, todayIso) {
+  const active = state.activeCalendarFilter;
+  if (!active) return true;
+  if (!inWindow) return false;
+
+  if (active === "fasted") {
+    return log?.status === "fasted";
+  }
+  if (active === "not_fasted") {
+    return log?.status === "not_fasted";
+  }
+  return !log && dateIso <= todayIso;
+}
+
+function renderCalendarFilterStatus() {
+  if (!els.calendarFilterStatus) return;
+  const label =
+    state.activeCalendarFilter === "fasted"
+      ? "Puasa (Fasted)"
+      : state.activeCalendarFilter === "not_fasted"
+        ? "Tak puasa (Not fasted)"
+        : state.activeCalendarFilter === "unknown"
+          ? "Belum log (Unlogged)"
+          : "";
+
+  if (!label) {
+    els.calendarFilterStatus.style.display = "none";
+    return;
+  }
+  els.calendarFilterStatus.style.display = "block";
+  els.calendarFilterStatus.innerHTML = `Filter: ${label} <button id="clearCalendarFilterBtn" class="btn-outline" type="button">✕</button>`;
+  const clearBtn = document.getElementById("clearCalendarFilterBtn");
+  clearBtn?.addEventListener("click", () => {
+    state.activeCalendarFilter = null;
+    renderAll();
+  });
 }
 
 function closeDayDialog() {

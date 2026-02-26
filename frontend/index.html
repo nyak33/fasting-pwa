@@ -291,6 +291,12 @@
         letter-spacing: 0.04em;
       }
 
+      .calendar-hint {
+        margin: 4px 2px 0;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+
       .calendar-weekdays,
       .calendar-grid {
         display: grid;
@@ -328,6 +334,15 @@
       .day-cell.in-ramadan {
         background: #edf7f1;
         border-color: #b9d8c7;
+      }
+
+      .day-cell.filtered-out {
+        opacity: 0.35;
+      }
+
+      .day-cell.filter-match {
+        border-width: 2px;
+        border-color: #0a6847;
       }
 
       .day-num {
@@ -394,6 +409,25 @@
         font-size: 0.88rem;
       }
 
+      .summary-filter-btn {
+        border: 1px solid #d3e2da;
+        background: #ffffff;
+        color: var(--text);
+        border-radius: 8px;
+        padding: 4px 10px;
+        font-weight: 700;
+      }
+
+      .summary-filter-btn.active {
+        background: #0a6847;
+        color: #ffffff;
+        border-color: #0a6847;
+      }
+
+      #calendarFilterStatus {
+        margin: 8px 0 0;
+      }
+
       .tag-chips {
         display: flex;
         flex-wrap: wrap;
@@ -452,6 +486,9 @@
             <div id="calendarMonthLabel" class="calendar-title">FEBRUARY 2026</div>
             <button id="monthNextBtn" class="btn-outline" type="button" aria-label="Next month">&gt;</button>
           </div>
+          <p id="calendarHint" class="calendar-hint">
+            Tap hari pada kalendar untuk log. (Tap a day to log.)
+          </p>
           <div class="calendar-weekdays" aria-hidden="true">
             <div class="weekday">Sun</div>
             <div class="weekday">Mon</div>
@@ -469,6 +506,10 @@
             <h3>Ringkasan Ramadhan (Ramadan Summary)</h3>
             <button id="openOverrideBtn" class="btn-outline" type="button">Set Perlu Ganti (Set Required)</button>
           </div>
+          <p id="calendarFilterStatus" class="muted small" style="display: none">
+            Filter aktif. (Active filter)
+            <button id="clearCalendarFilterBtn" class="btn-outline" type="button">Clear</button>
+          </p>
           <div class="table-wrap">
             <table class="summary-table">
               <thead>
@@ -708,6 +749,6 @@
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script type="module" src="./app.js?v=20260226-16"></script>
+    <script type="module" src="./app.js?v=20260226-17"></script>
   </body>
 </html>

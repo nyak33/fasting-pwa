@@ -22,6 +22,7 @@ from db import (
     get_user,
     get_user_by_session,
     init_db,
+    remove_subscription,
     update_notification_settings_for_user,
     update_last_answered_date_for_user,
     upsert_subscription,
@@ -123,6 +124,10 @@ class SubscriptionPayload(BaseModel):
 
 class SubscribeRequest(BaseModel):
     subscription: SubscriptionPayload
+
+
+class UnsubscribeRequest(BaseModel):
+    endpoint: str = Field(..., min_length=20)
 
 
 class CheckInRequest(BaseModel):
@@ -336,6 +341,12 @@ def me(user: dict = Depends(require_user)) -> dict:
 @app.post("/subscribe")
 def subscribe(payload: SubscribeRequest, user: dict = Depends(require_user)) -> dict:
     upsert_subscription(payload.subscription.model_dump(), user["google_sub"])
+    return {"ok": True}
+
+
+@app.post("/unsubscribe")
+def unsubscribe(payload: UnsubscribeRequest, user: dict = Depends(require_user)) -> dict:
+    remove_subscription(payload.endpoint)
     return {"ok": True}
 
 

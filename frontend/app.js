@@ -5,7 +5,7 @@
 
 const TIMEZONE = "Asia/Kuala_Lumpur";
 const BASE_PATH = new URL("./", window.location.href).pathname;
-const APP_VERSION = "20260226-15";
+const APP_VERSION = "20260226-16";
 const PROD_BACKEND_BASE = "https://api.syaqirshaq.online/api";
 
 const RAMADAN_YEAR_CONFIG = {
@@ -35,6 +35,7 @@ const API = {
   authLogout: `${BACKEND_BASE}/auth/logout`,
   me: `${BACKEND_BASE}/me`,
   subscribe: `${BACKEND_BASE}/subscribe`,
+  unsubscribe: `${BACKEND_BASE}/unsubscribe`,
   checkin: `${BACKEND_BASE}/checkin`,
   prayerTimes: `${BACKEND_BASE}/prayer-times`,
   notificationSettings: `${BACKEND_BASE}/notification-settings`,
@@ -69,6 +70,7 @@ let googleSignInRenderStarted = false;
 let currentLocationLabel = null;
 let locationPermissionAsked = false;
 let isSubmittingDialogAction = false;
+let hasPushSubscription = false;
 
 const state = {
   selectedRamadanYear: null,
@@ -94,6 +96,7 @@ const els = {
   googleSignIn: document.getElementById("googleSignIn"),
   logoutBtn: document.getElementById("logoutBtn"),
   enablePushBtn: document.getElementById("enablePushBtn"),
+  disablePushBtn: document.getElementById("disablePushBtn"),
   openSummaryBtn: document.getElementById("openSummaryBtn"),
   ramadanDayMeta: document.getElementById("ramadanDayMeta"),
   ramadanYearSelect: document.getElementById("ramadanYearSelect"),
@@ -133,6 +136,7 @@ boot();
 
 function setupEventListeners() {
   els.enablePushBtn?.addEventListener("click", enablePush);
+  els.disablePushBtn?.addEventListener("click", disablePush);
   els.logoutBtn?.addEventListener("click", logout);
   els.openSummaryBtn?.addEventListener("click", () => {
     els.summarySection?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -187,9 +191,11 @@ function setupEventListeners() {
   setupReminderEditorListeners();
   els.saveReminderSettingsBtn?.addEventListener("click", saveReminderSettings);
 
-  window.addEventListener("focus", syncPushButtonState);
+  window.addEventListener("focus", () => {
+    refreshPushSubscriptionState();
+  });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) syncPushButtonState();
+    if (!document.hidden) refreshPushSubscriptionState();
   });
 }
 
@@ -429,6 +435,7 @@ async function boot() {
     await loadBackendConfig();
     await initLocationPermissionAndRefresh();
     await restoreSession();
+    await refreshPushSubscriptionState();
     renderAuthState();
     initReminderEditors();
     await loadReminderSettings();
@@ -1115,8 +1122,25 @@ async function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) throw new Error("Service Worker is not supported in this browser.");
   await navigator.serviceWorker.register(`${BASE_PATH}sw.js?v=${APP_VERSION}`, { scope: BASE_PATH });
 }
+
+async function refreshPushSubscriptionState() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    hasPushSubscription = false;
+    syncPushButtonState();
+    return;
+  }
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const sub = await registration.pushManager.getSubscription();
+    hasPushSubscription = !!sub;
+    await setMeta("subscriptionEndpoint", sub?.endpoint || null);
+  } catch {
+    hasPushSubscription = false;
+  }
+  syncPushButtonState();
+}
 async function enablePush() {
-  const supportError = getPushSupportError();
+  const supportError = getEnablePushError();
   if (supportError) {
     setStatus(supportError);
     return;
@@ -1163,10 +1187,53 @@ async function enablePush() {
     if (!response.ok) throw new Error(`Subscribe failed (${response.status}).`);
 
     setStatus("Push aktif dan disimpan. (Push enabled and saved.)");
+    hasPushSubscription = true;
     syncPushButtonState();
   } catch (error) {
     console.error(error);
     setStatus(`Enable Push gagal: ${error.message}`);
+  }
+}
+
+async function disablePush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    setStatus("Push is not supported in this browser.");
+    return;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const sub = await registration.pushManager.getSubscription();
+    if (!sub) {
+      hasPushSubscription = false;
+      syncPushButtonState();
+      setStatus("Push sudah dimatikan. (Push is already disabled.)");
+      return;
+    }
+
+    const endpoint = sub.endpoint || "";
+    await sub.unsubscribe();
+    await setMeta("subscriptionEndpoint", null);
+    hasPushSubscription = false;
+
+    if (sessionToken && endpoint) {
+      const response = await fetch(API.unsubscribe, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ endpoint }),
+      });
+      if (response.status === 401) {
+        await logout();
+      } else if (!response.ok) {
+        throw new Error(`Unsubscribe sync failed (${response.status}).`);
+      }
+    }
+
+    syncPushButtonState();
+    setStatus("Push dimatikan. (Push disabled.)");
+  } catch (error) {
+    console.error(error);
+    setStatus(`Stop Push gagal: ${error.message}`);
   }
 }
 
@@ -1197,18 +1264,31 @@ async function maybeSyncTodayCheckin(date, status) {
 
 function syncPushButtonState() {
   if (!els.enablePushBtn) return;
-  const supportError = getPushSupportError();
-  const canEnable = !supportError && !!vapidPublicKey;
-  els.enablePushBtn.disabled = !canEnable;
-  els.enablePushBtn.title = supportError || (vapidPublicKey ? "" : "Missing backend VAPID config.");
+  const environmentError = getPushEnvironmentError();
+  const enableError = getEnablePushError();
+  const canEnable = !enableError && !!vapidPublicKey;
+  els.enablePushBtn.disabled = !canEnable || hasPushSubscription;
+  els.enablePushBtn.title = enableError || (vapidPublicKey ? "" : "Missing backend VAPID config.");
+  if (els.disablePushBtn) {
+    els.disablePushBtn.disabled = !!environmentError || !hasPushSubscription;
+    els.disablePushBtn.title = environmentError || "";
+  }
 }
 
-function getPushSupportError() {
-  if (!sessionToken || !currentUser?.email) return "Login with Google first.";
+function getPushEnvironmentError() {
   if (!window.isSecureContext) return "Push requires HTTPS (or localhost).";
   if (!("Notification" in window) || !("PushManager" in window)) return "Push is not supported in this browser.";
   if (isIosBrowser() && !isStandaloneDisplayMode()) {
     return "On iPhone/iPad, install this app to Home Screen to enable push.";
+  }
+  return null;
+}
+
+function getEnablePushError() {
+  if (!sessionToken || !currentUser?.email) return "Login with Google first.";
+  const environmentError = getPushEnvironmentError();
+  if (environmentError) {
+    return environmentError;
   }
   if (Notification.permission === "denied") {
     return "Notifications are blocked. Open browser site settings and allow Notifications.";
@@ -1650,6 +1730,7 @@ async function getMeta(key) {
 async function loadSavedMeta() {
   sessionToken = await getMeta("sessionToken");
   currentUser = (await getMeta("currentUser")) || null;
+  hasPushSubscription = !!(await getMeta("subscriptionEndpoint"));
   currentLocationLabel = (await getMeta("currentLocationLabel")) || null;
   locationPermissionAsked = (await getMeta("locationPermissionAsked")) === true;
 }

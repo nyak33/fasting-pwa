@@ -4,7 +4,7 @@
 
 const TIMEZONE = "Asia/Kuala_Lumpur";
 const BASE_PATH = new URL("./", window.location.href).pathname;
-const APP_VERSION = "20260226-9";
+const APP_VERSION = "20260226-10";
 const PROD_BACKEND_BASE = "https://api.syaqirshaq.online/api";
 
 const DEFAULT_BACKEND_BASE = (() => {
@@ -103,6 +103,9 @@ if (els.prayerTodayTab) {
 if (els.prayer30Tab) {
   els.prayer30Tab.addEventListener("click", () => setPrayerViewMode("days30"));
 }
+if (els.summaryText) {
+  els.summaryText.addEventListener("click", handleSummaryActionClick);
+}
 window.addEventListener("focus", syncPushButtonState);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
@@ -180,8 +183,8 @@ async function renderRoute() {
       redirectToHome: true,
       resolve: null,
     };
-    els.checkinPrompt.textContent = `Adakah anda berpuasa pada ${formatDateLong(date)}?`;
-    els.checkinMessage.textContent = "Pilih salah satu jawapan untuk simpan log harian anda.";
+    els.checkinPrompt.textContent = `Did you fast on ${formatDateLong(date)}?`;
+    els.checkinMessage.textContent = "Choose one answer to save your daily log.";
     if (!els.checkinDialog.open) {
       els.checkinDialog.showModal();
     }
@@ -522,8 +525,8 @@ async function answerCheckin(answer) {
   const date = activeRequest?.date || routeDate || todayInTimezone();
   const msg =
     answer === "fasting"
-      ? "Alhamdulillah, semoga istiqamah."
-      : "Terima kasih. Catat dan rancang ganti sebelum Ramadan seterusnya.";
+      ? "Recorded: fasting."
+      : "Recorded: missed / not fasting.";
 
   try {
     await putLog({
@@ -554,6 +557,10 @@ async function answerCheckin(answer) {
     }
     if (!syncResponse.ok) {
       throw new Error(`Check-in sync failed (${syncResponse.status}).`);
+    }
+
+    if (currentRoute() === "summary") {
+      await renderSummary();
     }
 
     const shouldRedirect = activeRequest?.redirectToHome === true;
@@ -631,8 +638,8 @@ function promptCheckinForDate(date, order, total) {
       resolve,
     };
 
-    els.checkinPrompt.textContent = `Adakah anda berpuasa pada ${formatDateLong(date)}?`;
-    els.checkinMessage.textContent = `Lengkapkan rekod Ramadan tertinggal (${order}/${total}).`;
+    els.checkinPrompt.textContent = `Did you fast on ${formatDateLong(date)}?`;
+    els.checkinMessage.textContent = `Complete missing Ramadan logs (${order}/${total}).`;
 
     if (!els.checkinDialog.open) {
       els.checkinDialog.showModal();
@@ -689,7 +696,7 @@ async function renderLogs() {
 
   for (const row of logs) {
     const li = document.createElement("li");
-    li.textContent = `${row.date} - ${row.status === "fasting" ? "Puasa" : "Tidak Puasa"}`;
+    li.textContent = `${row.date} - ${row.status === "fasting" ? "Fasting" : "Missed / Not fasting"}`;
     els.logs.appendChild(li);
   }
 }
@@ -815,42 +822,173 @@ function renderPrayerTable(payload) {
     .join("");
 }
 
+function formatSummaryDate(isoDate) {
+  const d = new Date(`${isoDate}T00:00:00`);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: TIMEZONE,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(d);
+}
+
+function summaryStatusLine(dataStatus) {
+  if (dataStatus === "fresh") {
+    return "✅ Data is up to date";
+  }
+  if (dataStatus === "cached") {
+    return "🟡 Showing cached data (refresh failed). Try again later.";
+  }
+  return "🔴 Data unavailable. Please try again.";
+}
+
+function renderSummaryMarkup({
+  startDate,
+  endDate,
+  totalDays,
+  completedFasts,
+  missedFasts,
+  noLogs,
+  dataStatus,
+}) {
+  const subheader = `${formatSummaryDate(startDate)} – ${formatSummaryDate(endDate)} • ${totalDays} days`;
+  const showActions = noLogs > 0;
+  const makeUpLine =
+    missedFasts > 0
+      ? `Make-up fasts needed: <strong>${missedFasts}</strong>`
+      : "Make-up fasts needed: 0 (based on logs)";
+
+  els.summaryText.innerHTML = `
+    <div class="summary-layout">
+      <header class="summary-header">
+        <h2>Ramadan Summary</h2>
+        <p class="muted summary-subheader">${subheader}</p>
+      </header>
+
+      <section class="summary-section">
+        <h3>Progress (based on logs)</h3>
+        <div class="summary-stats">
+          <article class="summary-stat">
+            <span class="summary-stat-label">Completed (logged)</span>
+            <span class="summary-stat-value">${completedFasts}</span>
+          </article>
+          <article class="summary-stat">
+            <span class="summary-stat-label">Missed (logged)</span>
+            <span class="summary-stat-value">${missedFasts}</span>
+          </article>
+          <article class="summary-stat">
+            <span class="summary-stat-label">Unlogged days</span>
+            <span class="summary-stat-value">${noLogs}</span>
+          </article>
+        </div>
+        ${
+          noLogs > 0
+            ? `<p class="muted">Unlogged days are not counted as missed fasts. They’re simply not recorded yet.</p>`
+            : ""
+        }
+      </section>
+
+      <section class="summary-section">
+        <h3>Make-up</h3>
+        <p>${makeUpLine}</p>
+      </section>
+
+      ${
+        showActions
+          ? `<section class="summary-section">
+               <h3>Actions</h3>
+               <div class="summary-actions">
+                 <button type="button" class="btn-primary" data-summary-action="log-today">Log today</button>
+                 <button type="button" class="btn-outline" data-summary-action="review-unlogged">Review unlogged days</button>
+               </div>
+             </section>`
+          : ""
+      }
+
+      <p class="summary-status">${summaryStatusLine(dataStatus)}</p>
+    </div>
+  `;
+}
+
+function handleSummaryActionClick(event) {
+  const button = event.target.closest("button[data-summary-action]");
+  if (!button) {
+    return;
+  }
+
+  const action = button.dataset.summaryAction;
+  if (action === "log-today") {
+    const date = todayInTimezone();
+    pendingCheckinRequest = {
+      date,
+      allowCancel: true,
+      redirectToHome: false,
+      resolve: null,
+    };
+    els.checkinPrompt.textContent = `Did you fast on ${formatDateLong(date)}?`;
+    els.checkinMessage.textContent = "Record today's fasting status.";
+    if (!els.checkinDialog.open) {
+      els.checkinDialog.showModal();
+    }
+    return;
+  }
+
+  if (action === "review-unlogged") {
+    runRamadanCatchupCheckins()
+      .then((count) => {
+        if (!count) {
+          setStatus("No unlogged days to review.");
+        }
+      })
+      .catch((error) => {
+        setStatus(`Unable to review unlogged days: ${error.message}`);
+      });
+  }
+}
+
 async function renderSummary() {
   try {
     const [windowData, logs] = await Promise.all([getRamadanWindow(), getAllLogs()]);
 
-    const start = windowData.start_date;
-    const end = windowData.end_date;
-    const allDates = dateRange(start, end);
-
+    const startDate = windowData.start_date;
+    const endDate = windowData.end_date;
+    const allDates = dateRange(startDate, endDate);
     const byDate = new Map(logs.map((item) => [item.date, item.status]));
 
-    let fastingDays = 0;
-    let nonFastingDays = 0;
-    let noEntry = 0;
+    let completedFasts = 0;
+    let missedFasts = 0;
+    let noLogs = 0;
 
     for (const d of allDates) {
       const status = byDate.get(d);
-      if (status === "fasting") fastingDays += 1;
-      else if (status === "not_fasting") nonFastingDays += 1;
-      else noEntry += 1;
+      if (status === "fasting") {
+        completedFasts += 1;
+      } else if (status === "not_fasting") {
+        missedFasts += 1;
+      } else {
+        noLogs += 1;
+      }
     }
 
-    const gantiNeeded = allDates.length - fastingDays;
-
-    els.summaryText.textContent = [
-      `Ramadan window: ${start} to ${end}.`,
-      `Total days: ${allDates.length}.`,
-      `Puasa penuh: ${fastingDays} hari.`,
-      `Tidak puasa: ${nonFastingDays} hari.`,
-      `Tiada log: ${noEntry} hari.`,
-      `Cadangan ganti: ${gantiNeeded} hari sebelum Ramadan seterusnya.`,
-      windowData.stale ? "Nota: Data Ramadan menggunakan cache lama sementara backend gagal refresh." : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
+    renderSummaryMarkup({
+      startDate,
+      endDate,
+      totalDays: allDates.length,
+      completedFasts,
+      missedFasts,
+      noLogs,
+      dataStatus: windowData.stale ? "cached" : "fresh",
+    });
   } catch (error) {
-    els.summaryText.textContent = `Unable to compute summary: ${error.message}`;
+    els.summaryText.innerHTML = `
+      <div class="summary-layout">
+        <header class="summary-header">
+          <h2>Ramadan Summary</h2>
+          <p class="muted summary-subheader">Summary unavailable</p>
+        </header>
+        <p class="summary-status">${summaryStatusLine("error")}</p>
+      </div>
+    `;
   }
 }
 

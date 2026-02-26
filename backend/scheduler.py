@@ -44,8 +44,8 @@ def _run_checkin_job(settings) -> None:
         return
 
     payload = {
-        "title": "Check-in puasa",
-        "body": "Sudah jawab check-in puasa hari ini?",
+        "title": "Fasting Check-in",
+        "body": "Have you completed today's fasting check-in?",
         "url": f"{settings.frontend_base_url}/?view=checkin&date={date_iso}",
         "tag": f"checkin-{date_iso}",
     }
@@ -68,8 +68,8 @@ def _run_summary_job(settings) -> None:
         return
 
     payload = {
-        "title": "Ringkasan Ramadan",
-        "body": "Semak ringkasan puasa anda dan rancang ganti sebelum Ramadan seterusnya.",
+        "title": "Ramadan Summary",
+        "body": "Review your fasting summary and plan any required make-up fasts.",
         "url": f"{settings.frontend_base_url}/?view=summary",
         "tag": f"summary-{window['end_date']}",
     }

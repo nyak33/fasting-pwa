@@ -1,8 +1,8 @@
 ﻿// Version History
 // v1.0 - Service worker for push notifications and deep-link navigation.
 
-const APP_CACHE = "fasting-pwa-v9";
-const APP_ASSETS = ["./", "./index.html", "./app.js?v=20260226-9", "./manifest.json"];
+const APP_CACHE = "fasting-pwa-v10";
+const APP_ASSETS = ["./", "./index.html", "./app.js?v=20260226-10", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -49,7 +49,7 @@ self.addEventListener("push", (event) => {
   const payload = event.data ? event.data.json() : {};
   const title = payload.title || "Fasting Tracker";
   const options = {
-    body: payload.body || "Sila semak aplikasi.",
+    body: payload.body || "Please check the app.",
     tag: payload.tag || "fasting-pwa-notification",
     renotify: true,
     data: {

@@ -127,6 +127,67 @@
         display: none;
       }
 
+      .summary-layout {
+        display: grid;
+        gap: 14px;
+      }
+
+      .summary-header h2 {
+        margin: 0;
+      }
+
+      .summary-subheader {
+        margin-top: 6px;
+      }
+
+      .summary-section {
+        border: 1px solid #e1ece6;
+        border-radius: 12px;
+        padding: 12px;
+        background: #f7fbf9;
+      }
+
+      .summary-section h3 {
+        margin: 0 0 10px;
+        font-size: 1rem;
+      }
+
+      .summary-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 8px;
+      }
+
+      .summary-stat {
+        border: 1px solid #d7e8df;
+        border-radius: 10px;
+        padding: 10px;
+        background: #ffffff;
+      }
+
+      .summary-stat-label {
+        display: block;
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+
+      .summary-stat-value {
+        font-size: 1.35rem;
+        font-weight: 700;
+      }
+
+      .summary-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .summary-status {
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+
       #prayerTodayView {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -236,22 +297,21 @@
       </section>
 
       <section class="card" id="summaryPanel">
-        <h2>Ramadan Summary</h2>
-        <p id="summaryText" class="muted">Loading summary...</p>
+        <div id="summaryText" class="muted">Loading summary...</div>
       </section>
     </main>
 
     <dialog id="checkinDialog">
-      <h3 id="checkinTitle">Check-in Puasa</h3>
+      <h3 id="checkinTitle">Fasting Check-in</h3>
       <p id="checkinPrompt"></p>
       <p id="checkinMessage" class="muted"></p>
       <div class="row">
-        <button data-answer="fasting" class="btn-primary">Saya Puasa</button>
-        <button data-answer="not_fasting" class="btn-danger">Saya Tidak Puasa</button>
+        <button data-answer="fasting" class="btn-primary">Fasting</button>
+        <button data-answer="not_fasting" class="btn-danger">Missed / Not fasting</button>
       </div>
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script type="module" src="./app.js?v=20260226-9"></script>
+    <script type="module" src="./app.js?v=20260226-10"></script>
   </body>
 </html>

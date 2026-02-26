@@ -5,7 +5,7 @@
 
 const TIMEZONE = "Asia/Kuala_Lumpur";
 const BASE_PATH = new URL("./", window.location.href).pathname;
-const APP_VERSION = "20260226-12";
+const APP_VERSION = "20260226-13";
 const PROD_BACKEND_BASE = "https://api.syaqirshaq.online/api";
 
 const RAMADAN_YEAR_CONFIG = {
@@ -247,9 +247,14 @@ function shiftViewMonth(delta) {
 async function loadLocalData() {
   const [rawLogs, rawManual] = await Promise.all([getAllLogsRaw(), getMeta("requiredManualByYear")]);
   state.logsByDate = new Map();
+  const todayIso = todayInTimezone();
   for (const item of rawLogs) {
     const log = normalizeStoredLog(item);
     if (!log || !log.status) continue;
+    if (log.date > todayIso) {
+      await dbRun("logs", "readwrite", (store) => store.delete(log.date));
+      continue;
+    }
     state.logsByDate.set(log.date, log);
   }
   state.requiredManualByYear = sanitizeRequiredManualMap(rawManual);
@@ -280,9 +285,9 @@ function renderCalendar() {
   const cells = buildCalendarCells(state.viewMonthYear, state.viewMonthIndex);
   els.calendarGrid.innerHTML = cells
     .map((cell) => {
-      const log = state.logsByDate.get(cell.iso);
       const inWindow = isWithinRamadanWindow(cell.iso, state.selectedRamadanYear);
       const isFuture = cell.iso > todayIso;
+      const log = isFuture ? null : state.logsByDate.get(cell.iso);
       let mark = "&nbsp;";
       let markClass = "day-mark";
 
@@ -690,6 +695,10 @@ async function handleInitialRoute() {
   }
   if (route === "checkin") {
     const date = normalizeIsoDate(new URLSearchParams(window.location.search).get("date") || "") || todayInTimezone();
+    if (date > todayInTimezone()) {
+      setStatus("Tarikh akan datang tidak dibenarkan. (Future date is not allowed.)");
+      return;
+    }
     state.pendingCheckinRequest = {
       date,
       allowCancel: true,
@@ -1140,6 +1149,9 @@ function getAllLogsArray() {
 async function saveDayLog(log) {
   const normalized = normalizeStoredLog(log);
   if (!normalized || !normalized.status) throw new Error("Invalid log payload.");
+  if (normalized.date > todayInTimezone()) {
+    throw new Error("Future date logging is disabled.");
+  }
   await dbRun("logs", "readwrite", (store) => store.put(normalized));
   state.logsByDate.set(normalized.date, normalized);
 }

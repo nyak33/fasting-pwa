@@ -1,13 +1,15 @@
-﻿// Version History
+// Version History
 // v1.0 - PWA app shell, local IndexedDB logs, check-in modal, and local summary calculation.
+// v1.1 - Google login account auth for push/check-in sync.
 
 const TIMEZONE = "Asia/Kuala_Lumpur";
 const BASE_PATH = new URL("./", window.location.href).pathname;
-const APP_VERSION = "20260225-7";
+const APP_VERSION = "20260226-9";
 const PROD_BACKEND_BASE = "https://api.syaqirshaq.online/api";
 
 const DEFAULT_BACKEND_BASE = (() => {
   const host = window.location.hostname;
+  const isLocalHost = host === "127.0.0.1" || host === "localhost";
   const isProdDomain =
     host === "syaqirshaq.online" ||
     host === "www.syaqirshaq.online" ||
@@ -15,6 +17,9 @@ const DEFAULT_BACKEND_BASE = (() => {
 
   if (host.endsWith("github.io") || isProdDomain) {
     return PROD_BACKEND_BASE;
+  }
+  if (isLocalHost) {
+    return "http://127.0.0.1:8000";
   }
   if (window.location.port === "8000") {
     return window.location.origin;
@@ -25,6 +30,9 @@ const DEFAULT_BACKEND_BASE = (() => {
 const BACKEND_BASE = (localStorage.getItem("fastingPwaBackendBase") || DEFAULT_BACKEND_BASE).replace(/\/$/, "");
 const API = {
   config: `${BACKEND_BASE}/config`,
+  authGoogle: `${BACKEND_BASE}/auth/google`,
+  authLogout: `${BACKEND_BASE}/auth/logout`,
+  me: `${BACKEND_BASE}/me`,
   subscribe: `${BACKEND_BASE}/subscribe`,
   checkin: `${BACKEND_BASE}/checkin`,
   ramadanWindow: `${BACKEND_BASE}/ramadan-window`,
@@ -46,13 +54,19 @@ const DB_NAME = "fasting-pwa-db";
 const DB_VERSION = 1;
 let dbPromise = null;
 let vapidPublicKey = null;
+let googleClientId = null;
 let subscriptionEndpoint = null;
+let sessionToken = null;
+let currentUser = null;
 let backendConfigError = null;
 let prayerTimesPayload = null;
 let ramadanWindowPayload = null;
 let prayerViewMode = "today";
 let pendingCheckinRequest = null;
 let isSubmittingCheckin = false;
+let googleSignInRenderStarted = false;
+let currentLocationLabel = null;
+let locationPermissionAsked = false;
 
 const els = {
   status: document.getElementById("status"),
@@ -60,6 +74,9 @@ const els = {
   checkinDialog: document.getElementById("checkinDialog"),
   checkinPrompt: document.getElementById("checkinPrompt"),
   checkinMessage: document.getElementById("checkinMessage"),
+  authMeta: document.getElementById("authMeta"),
+  googleSignIn: document.getElementById("googleSignIn"),
+  logoutBtn: document.getElementById("logoutBtn"),
   enablePushBtn: document.getElementById("enablePushBtn"),
   openSummaryBtn: document.getElementById("openSummaryBtn"),
   ramadanDayMeta: document.getElementById("ramadanDayMeta"),
@@ -76,6 +93,7 @@ const els = {
 };
 
 els.enablePushBtn.addEventListener("click", enablePush);
+els.logoutBtn.addEventListener("click", logout);
 els.openSummaryBtn.addEventListener("click", () => {
   window.location.href = `${BASE_PATH}?view=summary`;
 });
@@ -111,6 +129,10 @@ async function boot() {
     await loadSavedMeta();
     await registerServiceWorker();
     await loadBackendConfig();
+    await initLocationPermissionAndRefresh();
+    await restoreSession();
+    renderAuthState();
+    initGoogleSignIn();
     syncPushButtonState();
     await renderLogs();
     await renderRamadanDayMeta();
@@ -179,11 +201,236 @@ async function loadBackendConfig() {
     }
     const data = await response.json();
     vapidPublicKey = data.vapidPublicKey;
+    googleClientId = data.googleClientId || null;
     backendConfigError = null;
   } catch (error) {
     backendConfigError = error;
     vapidPublicKey = null;
+    googleClientId = null;
   }
+}
+
+async function initLocationPermissionAndRefresh() {
+  if (!("geolocation" in navigator)) {
+    return;
+  }
+
+  const permissionState = await getGeolocationPermissionState();
+
+  if (!locationPermissionAsked && permissionState !== "denied") {
+    setStatus("Requesting location permission...");
+    try {
+      await refreshCurrentLocation();
+    } finally {
+      locationPermissionAsked = true;
+      await setMeta("locationPermissionAsked", true);
+    }
+    return;
+  }
+
+  if (permissionState === "granted") {
+    await refreshCurrentLocation();
+  }
+}
+
+async function getGeolocationPermissionState() {
+  if (!navigator.permissions?.query) {
+    return "unknown";
+  }
+
+  try {
+    const result = await navigator.permissions.query({ name: "geolocation" });
+    return result.state;
+  } catch (error) {
+    return "unknown";
+  }
+}
+
+async function refreshCurrentLocation() {
+  const pos = await getCurrentPosition();
+  const lat = pos.coords.latitude;
+  const lon = pos.coords.longitude;
+
+  const label = await reverseGeocodeLabel(lat, lon);
+  if (!label) {
+    return;
+  }
+
+  currentLocationLabel = label;
+  await setMeta("currentLocationLabel", currentLocationLabel);
+
+  if (prayerTimesPayload) {
+    renderPrayerMetaLine(prayerTimesPayload);
+  }
+}
+
+function getCurrentPosition() {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve(position),
+      (error) => reject(error),
+      {
+        enableHighAccuracy: false,
+        timeout: 12000,
+        maximumAge: 0,
+      }
+    );
+  });
+}
+
+async function reverseGeocodeLabel(lat, lon) {
+  try {
+    const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${encodeURIComponent(
+      lat
+    )}&longitude=${encodeURIComponent(lon)}&localityLanguage=en`;
+    const data = await fetchJson(url);
+    const locality = data.city || data.locality || data.localityInfo?.informative?.[0]?.name || "";
+    const region = data.principalSubdivision || "";
+    const country = data.countryName || "";
+    const label = [locality, region, country].filter(Boolean).join(", ");
+    if (label) {
+      return label;
+    }
+  } catch (error) {
+    // Keep fallback below when reverse-geocode API is unavailable.
+  }
+
+  return `${Number(lat).toFixed(4)}, ${Number(lon).toFixed(4)}`;
+}
+
+function prayerLocationLabel(payload) {
+  return currentLocationLabel || payload.location || "Current location";
+}
+
+function renderPrayerMetaLine(payload) {
+  const todayLabel = formatDateLong(payload.today);
+  els.prayerMeta.textContent = `${prayerLocationLabel(payload)} - ${todayLabel}`;
+}
+
+function renderAuthState() {
+  if (!els.authMeta || !els.googleSignIn || !els.logoutBtn) {
+    return;
+  }
+
+  if (currentUser?.email) {
+    const name = currentUser.name || currentUser.email;
+    els.authMeta.textContent = `Signed in as ${name}.`;
+    els.googleSignIn.style.display = "none";
+    els.logoutBtn.style.display = "inline-block";
+    return;
+  }
+
+  els.authMeta.textContent = "Google login required for push check-in sync.";
+  els.googleSignIn.style.display = "block";
+  els.logoutBtn.style.display = "none";
+}
+
+function initGoogleSignIn() {
+  if (!googleClientId || currentUser?.email || googleSignInRenderStarted) {
+    return;
+  }
+
+  const render = () => {
+    if (!window.google?.accounts?.id || !els.googleSignIn) {
+      setTimeout(render, 250);
+      return;
+    }
+
+    googleSignInRenderStarted = true;
+    window.google.accounts.id.initialize({
+      client_id: googleClientId,
+      callback: async (response) => {
+        try {
+          await loginWithGoogleCredential(response?.credential || "");
+          renderAuthState();
+          syncPushButtonState();
+          setStatus("Google login successful. You can enable push now.");
+        } catch (error) {
+          setStatus(`Google login failed: ${error.message}`);
+        }
+      },
+    });
+
+    els.googleSignIn.innerHTML = "";
+    window.google.accounts.id.renderButton(els.googleSignIn, {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      text: "signin_with",
+      shape: "pill",
+      width: 240,
+    });
+  };
+
+  render();
+}
+
+async function loginWithGoogleCredential(credential) {
+  if (!credential) {
+    throw new Error("Missing Google credential.");
+  }
+
+  const response = await fetch(API.authGoogle, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ credential }),
+  });
+  if (!response.ok) {
+    throw new Error(`Auth failed (${response.status}).`);
+  }
+
+  const data = await response.json();
+  sessionToken = data.sessionToken;
+  currentUser = data.user || null;
+  await setMeta("sessionToken", sessionToken);
+  await setMeta("currentUser", currentUser);
+}
+
+async function restoreSession() {
+  if (!sessionToken) {
+    currentUser = null;
+    return;
+  }
+
+  try {
+    const response = await fetch(API.me, { headers: authHeaders() });
+    if (!response.ok) {
+      throw new Error(`Session check failed (${response.status})`);
+    }
+    const data = await response.json();
+    currentUser = data.user || null;
+    await setMeta("currentUser", currentUser);
+  } catch (error) {
+    sessionToken = null;
+    currentUser = null;
+    await setMeta("sessionToken", null);
+    await setMeta("currentUser", null);
+  }
+}
+
+async function logout() {
+  try {
+    if (sessionToken) {
+      await fetch(API.authLogout, { method: "POST", headers: authHeaders() });
+    }
+  } finally {
+    sessionToken = null;
+    currentUser = null;
+    googleSignInRenderStarted = false;
+    await setMeta("sessionToken", null);
+    await setMeta("currentUser", null);
+    renderAuthState();
+    initGoogleSignIn();
+    syncPushButtonState();
+    setStatus("Logged out.");
+  }
+}
+
+function authHeaders(extra = {}) {
+  if (!sessionToken) {
+    return { ...extra };
+  }
+  return { Authorization: `Bearer ${sessionToken}`, ...extra };
 }
 
 async function registerServiceWorker() {
@@ -203,6 +450,9 @@ async function enablePush() {
   }
 
   try {
+    if (!sessionToken) {
+      throw new Error("Login with Google first.");
+    }
     if (!vapidPublicKey) {
       throw new Error("Backend config missing VAPID key. Check API /config and CORS.");
     }
@@ -235,12 +485,16 @@ async function enablePush() {
 
     const response = await fetch(API.subscribe, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         subscription: subscription.toJSON(),
       }),
     });
 
+    if (response.status === 401) {
+      await logout();
+      throw new Error("Session expired. Please login again.");
+    }
     if (!response.ok) {
       throw new Error(`Subscribe failed (${response.status}).`);
     }
@@ -281,16 +535,25 @@ async function answerCheckin(answer) {
     els.checkinMessage.textContent = msg;
     await renderLogs();
 
-    if (subscriptionEndpoint) {
-      await fetch(API.checkin, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          endpoint: subscriptionEndpoint,
-          date,
-          status: answer,
-        }),
-      });
+    if (!sessionToken) {
+      throw new Error("Login with Google first so your check-in syncs across devices.");
+    }
+
+    const syncResponse = await fetch(API.checkin, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        date,
+        status: answer,
+      }),
+    });
+
+    if (syncResponse.status === 401) {
+      await logout();
+      throw new Error("Session expired. Please login again.");
+    }
+    if (!syncResponse.ok) {
+      throw new Error(`Check-in sync failed (${syncResponse.status}).`);
     }
 
     const shouldRedirect = activeRequest?.redirectToHome === true;
@@ -472,9 +735,7 @@ async function renderPrayerTimes() {
   try {
     const data = await fetchJson(`${API.prayerTimes}?days=30`);
     prayerTimesPayload = data;
-
-    const todayLabel = formatDateLong(data.today);
-    els.prayerMeta.textContent = `${data.location} - ${todayLabel}`;
+    renderPrayerMetaLine(data);
     els.prayerFooter.textContent = `Based on: ${data.source_name}. GMT+08:00${
       data.stale ? " - showing cached data while source refresh failed." : ""
     }`;
@@ -766,6 +1027,10 @@ async function getMeta(key) {
 
 async function loadSavedMeta() {
   subscriptionEndpoint = await getMeta("subscriptionEndpoint");
+  sessionToken = await getMeta("sessionToken");
+  currentUser = (await getMeta("currentUser")) || null;
+  currentLocationLabel = (await getMeta("currentLocationLabel")) || null;
+  locationPermissionAsked = (await getMeta("locationPermissionAsked")) === true;
 }
 
 function syncPushButtonState() {
@@ -782,6 +1047,10 @@ function syncPushButtonState() {
 }
 
 function getPushSupportError() {
+  if (!sessionToken || !currentUser?.email) {
+    return "Login with Google first.";
+  }
+
   if (!window.isSecureContext) {
     return "Push requires HTTPS (or localhost).";
   }

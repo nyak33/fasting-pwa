@@ -181,6 +181,14 @@
       .small {
         font-size: 0.92rem;
       }
+
+      #googleSignIn {
+        min-height: 40px;
+      }
+
+      #logoutBtn {
+        display: none;
+      }
     </style>
   </head>
   <body>
@@ -189,6 +197,11 @@
         <h1>Fasting Tracker (Malaysia)</h1>
         <p class="muted">Local-first tracker using IndexedDB. Timezone: Asia/Kuala_Lumpur.</p>
         <p id="ramadanDayMeta" class="muted">Checking Ramadan day...</p>
+        <p id="authMeta" class="muted">Google login required for push check-in sync.</p>
+        <div class="row">
+          <div id="googleSignIn"></div>
+          <button id="logoutBtn" class="btn-outline" type="button">Logout</button>
+        </div>
         <p id="status">Status: initializing...</p>
         <div class="row">
           <button id="enablePushBtn" class="btn-primary">Enable Push</button>
@@ -238,6 +251,7 @@
       </div>
     </dialog>
 
-    <script type="module" src="./app.js?v=20260225-7"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script type="module" src="./app.js?v=20260226-9"></script>
   </body>
 </html>

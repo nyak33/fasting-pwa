@@ -14,17 +14,23 @@ import requests
 
 JAKIM_API_URL = "https://www.e-solat.gov.my/index.php"
 JAKIM_ROUTE = "esolatApi/takwimsolat"
+WAKTUSOLAT_API_URL = "https://api.waktusolat.app/v2/solat"
 ALADHAN_API_URL = "https://api.aladhan.com/v1/calendarByCity"
 
 CACHE_PATH = os.path.join(os.path.dirname(__file__), "prayer_times_cache.json")
 CACHE_TTL = timedelta(hours=6)
 
 SOURCE_JAKIM = "jakim"
+SOURCE_WAKTUSOLAT = "waktusolat"
 SOURCE_ALADHAN = "aladhan"
 SOURCE_META = {
     SOURCE_JAKIM: {
         "name": "Jabatan Kemajuan Islam Malaysia (JAKIM)",
         "url": "https://www.e-solat.gov.my/",
+    },
+    SOURCE_WAKTUSOLAT: {
+        "name": "Waktu Solat API (JAKIM mirror fallback)",
+        "url": "https://api.waktusolat.app/",
     },
     SOURCE_ALADHAN: {
         "name": "AlAdhan (fallback)",
@@ -143,6 +149,14 @@ def _normalize_aladhan_entry(raw: dict[str, Any]) -> dict[str, str] | None:
     }
 
 
+def _epoch_to_hms(epoch_value: Any, timezone: ZoneInfo) -> str:
+    try:
+        epoch_int = int(epoch_value)
+    except (TypeError, ValueError):
+        return ""
+    return datetime.fromtimestamp(epoch_int, timezone).strftime("%H:%M:%S")
+
+
 def _fetch_month_from_jakim(zone: str, year: int, month: int) -> list[dict[str, str]]:
     response = requests.get(
         JAKIM_API_URL,
@@ -171,6 +185,69 @@ def _fetch_month_from_jakim(zone: str, year: int, month: int) -> list[dict[str, 
 
     if not items:
         raise RuntimeError(f"No JAKIM prayer times returned for {year}-{month:02d}.")
+
+    return items
+
+
+def _fetch_month_from_waktusolat(
+    zone: str,
+    year: int,
+    month: int,
+    timezone: ZoneInfo,
+) -> list[dict[str, str]]:
+    response = requests.get(
+        f"{WAKTUSOLAT_API_URL}/{zone}",
+        params={
+            "year": str(year),
+            "month": str(month),
+        },
+        timeout=(8, 20),
+    )
+    response.raise_for_status()
+
+    data = response.json()
+    prayers = data.get("prayers")
+    if not isinstance(prayers, list) or not prayers:
+        raise RuntimeError(f"No Waktu Solat data returned for {year}-{month:02d}.")
+
+    items: list[dict[str, str]] = []
+    for raw in prayers:
+        if not isinstance(raw, dict):
+            continue
+        day = raw.get("day")
+        try:
+            day_num = int(day)
+            iso_date = date(year, month, day_num).isoformat()
+        except (TypeError, ValueError):
+            continue
+
+        fajr_epoch = raw.get("fajr")
+        imsak = ""
+        try:
+            imsak = _epoch_to_hms(int(fajr_epoch) - 600, timezone)
+        except (TypeError, ValueError):
+            imsak = ""
+
+        maghrib = _epoch_to_hms(raw.get("maghrib"), timezone)
+        items.append(
+            {
+                "date": iso_date,
+                "day": "",
+                "hijri": str(raw.get("hijri", "")),
+                "imsak": imsak,
+                "fajr": _epoch_to_hms(raw.get("fajr"), timezone),
+                "sunrise": _epoch_to_hms(raw.get("syuruk"), timezone),
+                "dhuhr": _epoch_to_hms(raw.get("dhuhr"), timezone),
+                "asr": _epoch_to_hms(raw.get("asr"), timezone),
+                "sunset": maghrib,
+                "maghrib": maghrib,
+                "isha": _epoch_to_hms(raw.get("isha"), timezone),
+                "midnight": "",
+            }
+        )
+
+    if not items:
+        raise RuntimeError(f"Unable to normalize Waktu Solat data for {year}-{month:02d}.")
 
     return items
 
@@ -217,6 +294,7 @@ def _fetch_month_with_fallback(
     zone: str,
     year: int,
     month: int,
+    timezone: ZoneInfo,
     city: str,
     country: str,
     method: int,
@@ -224,7 +302,10 @@ def _fetch_month_with_fallback(
     try:
         return _fetch_month_from_jakim(zone, year, month), SOURCE_JAKIM
     except Exception:
-        return _fetch_month_from_aladhan(year, month, city, country, method), SOURCE_ALADHAN
+        try:
+            return _fetch_month_from_waktusolat(zone, year, month, timezone), SOURCE_WAKTUSOLAT
+        except Exception:
+            return _fetch_month_from_aladhan(year, month, city, country, method), SOURCE_ALADHAN
 
 
 def _load_month(
@@ -249,12 +330,42 @@ def _load_month(
                 fetched_at = fetched_at.replace(tzinfo=now.tzinfo)
             if (now - fetched_at) <= CACHE_TTL and isinstance(cached.get("items"), list):
                 source = str(cached.get("source") or SOURCE_JAKIM)
-                return cached["items"], False, source
+                if source == SOURCE_JAKIM:
+                    return cached["items"], False, source
+
+                # If cached source is fallback, retry providers immediately so we recover fast.
+                try:
+                    fresh_items, fresh_source = _fetch_month_with_fallback(
+                        zone=zone,
+                        year=year,
+                        month=month,
+                        timezone=now.tzinfo,
+                        city=city,
+                        country=country,
+                        method=method,
+                    )
+                    zone_cache[key] = {
+                        "fetched_at": now.isoformat(),
+                        "items": fresh_items,
+                        "source": fresh_source,
+                    }
+                    _write_cache(cache)
+                    return fresh_items, False, fresh_source
+                except Exception:
+                    return cached["items"], False, source
         except Exception:
             pass
 
     try:
-        fresh_items, source = _fetch_month_with_fallback(zone, year, month, city, country, method)
+        fresh_items, source = _fetch_month_with_fallback(
+            zone=zone,
+            year=year,
+            month=month,
+            timezone=now.tzinfo,
+            city=city,
+            country=country,
+            method=method,
+        )
         zone_cache[key] = {
             "fetched_at": now.isoformat(),
             "items": fresh_items,
@@ -329,7 +440,12 @@ def get_prayer_times_window(
     if not items:
         raise RuntimeError("Unable to build prayer times window from upstream data.")
 
-    source = SOURCE_JAKIM if SOURCE_JAKIM in sources else SOURCE_ALADHAN
+    if SOURCE_JAKIM in sources:
+        source = SOURCE_JAKIM
+    elif SOURCE_WAKTUSOLAT in sources:
+        source = SOURCE_WAKTUSOLAT
+    else:
+        source = SOURCE_ALADHAN
     source_meta = SOURCE_META[source]
 
     return {
@@ -341,7 +457,7 @@ def get_prayer_times_window(
         "generated_at": now.isoformat(),
         "source_name": source_meta["name"],
         "source_url": source_meta["url"],
-        "used_fallback": source == SOURCE_ALADHAN,
+        "used_fallback": source != SOURCE_JAKIM,
         "stale": stale,
         "items": items,
     }

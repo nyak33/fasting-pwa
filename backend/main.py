@@ -1,5 +1,6 @@
-﻿# Version History
+# Version History
 # v1.0 - Initial FastAPI backend with subscriptions, check-ins, and scheduler wiring.
+# v1.1 - Google login auth with account-linked subscriptions and check-ins.
 
 from __future__ import annotations
 
@@ -8,11 +9,22 @@ from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from pydantic import BaseModel, Field
 
-from db import init_db, upsert_subscription, update_last_answered_date
+from db import (
+    create_session,
+    delete_session,
+    get_user,
+    get_user_by_session,
+    init_db,
+    update_last_answered_date_for_user,
+    upsert_subscription,
+    upsert_user,
+)
 from jakim_calendar import get_cached_ramadan_window
 from prayer_times import get_prayer_times_window
 from scheduler import build_scheduler
@@ -33,6 +45,8 @@ class Settings:
     prayer_city: str
     prayer_country: str
     prayer_method: int
+    google_client_id: str
+    session_ttl_days: int
 
 
 def get_settings() -> Settings:
@@ -48,9 +62,13 @@ def get_settings() -> Settings:
     prayer_city = os.getenv("PRAYER_CITY", "Seri Kembangan")
     prayer_country = os.getenv("PRAYER_COUNTRY", "Malaysia")
     prayer_method = int(os.getenv("PRAYER_METHOD", "11"))
+    google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    session_ttl_days = int(os.getenv("SESSION_TTL_DAYS", "30"))
 
     if not public or not private:
         raise RuntimeError("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be set.")
+    if not google_client_id:
+        raise RuntimeError("GOOGLE_CLIENT_ID must be set.")
 
     return Settings(
         vapid_public_key=public,
@@ -62,10 +80,13 @@ def get_settings() -> Settings:
         prayer_city=prayer_city,
         prayer_country=prayer_country,
         prayer_method=prayer_method,
+        google_client_id=google_client_id,
+        session_ttl_days=session_ttl_days,
     )
 
 
 settings = get_settings()
+google_request = google_requests.Request()
 app = FastAPI(title="fasting-pwa-backend")
 
 raw_origins = os.getenv("CORS_ORIGINS", "*")
@@ -97,9 +118,56 @@ class SubscribeRequest(BaseModel):
 
 
 class CheckInRequest(BaseModel):
-    endpoint: str
     date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     status: str = Field(..., pattern=r"^(fasting|not_fasting)$")
+
+
+class GoogleAuthRequest(BaseModel):
+    credential: str = Field(..., min_length=20)
+
+
+def _verify_google_credential(credential: str) -> dict:
+    try:
+        payload = google_id_token.verify_oauth2_token(
+            credential,
+            google_request,
+            settings.google_client_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid Google credential") from exc
+
+    google_sub = payload.get("sub")
+    email = payload.get("email")
+    if not google_sub or not email:
+        raise HTTPException(status_code=401, detail="Google credential missing sub/email")
+
+    return {
+        "google_sub": google_sub,
+        "email": email,
+        "name": payload.get("name"),
+        "picture": payload.get("picture"),
+    }
+
+
+def _extract_bearer_token(authorization: str | None) -> str:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid Authorization header")
+
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    return token
+
+
+def require_user(authorization: str | None = Header(default=None)) -> dict:
+    token = _extract_bearer_token(authorization)
+    user = get_user_by_session(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Session expired or invalid")
+    user["session_token"] = token
+    return user
 
 
 @app.on_event("startup")
@@ -131,6 +199,8 @@ def get_config() -> dict:
         "prayerLocation": settings.prayer_location,
         "prayerCity": settings.prayer_city,
         "prayerCountry": settings.prayer_country,
+        "googleClientId": settings.google_client_id,
+        "authRequired": True,
     }
 
 
@@ -153,16 +223,58 @@ def prayer_times(days: int = Query(default=30, ge=1, le=60)) -> dict:
     return payload
 
 
+@app.post("/auth/google")
+def auth_google(payload: GoogleAuthRequest) -> dict:
+    verified = _verify_google_credential(payload.credential)
+    upsert_user(verified)
+    session = create_session(verified["google_sub"], ttl_days=settings.session_ttl_days)
+    user = get_user(verified["google_sub"]) or verified
+
+    return {
+        "ok": True,
+        "sessionToken": session["token"],
+        "expiresAt": session["expires_at"],
+        "user": {
+            "googleSub": user["google_sub"],
+            "email": user["email"],
+            "name": user.get("name"),
+            "picture": user.get("picture"),
+            "lastAnsweredDate": user.get("last_answered_date"),
+        },
+    }
+
+
+@app.post("/auth/logout")
+def auth_logout(user: dict = Depends(require_user)) -> dict:
+    delete_session(user["session_token"])
+    return {"ok": True}
+
+
+@app.get("/me")
+def me(user: dict = Depends(require_user)) -> dict:
+    return {
+        "ok": True,
+        "user": {
+            "googleSub": user["google_sub"],
+            "email": user["email"],
+            "name": user.get("name"),
+            "picture": user.get("picture"),
+            "lastAnsweredDate": user.get("last_answered_date"),
+            "sessionExpiresAt": user.get("expires_at"),
+        },
+    }
+
+
 @app.post("/subscribe")
-def subscribe(payload: SubscribeRequest) -> dict:
-    upsert_subscription(payload.subscription.model_dump())
+def subscribe(payload: SubscribeRequest, user: dict = Depends(require_user)) -> dict:
+    upsert_subscription(payload.subscription.model_dump(), user["google_sub"])
     return {"ok": True}
 
 
 @app.post("/checkin")
-def checkin(payload: CheckInRequest) -> dict:
-    updated = update_last_answered_date(payload.endpoint, payload.date)
+def checkin(payload: CheckInRequest, user: dict = Depends(require_user)) -> dict:
+    updated = update_last_answered_date_for_user(user["google_sub"], payload.date)
     if not updated:
-        raise HTTPException(status_code=404, detail="Subscription endpoint not found")
+        raise HTTPException(status_code=404, detail="User not found")
 
     return {"ok": True, "status": payload.status, "date": payload.date}

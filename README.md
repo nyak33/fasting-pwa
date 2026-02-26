@@ -29,7 +29,8 @@ fasting-pwa/
 ## What It Does
 
 - Uses timezone `Asia/Kuala_Lumpur` everywhere.
-- Stores only push subscriptions and `last_answered_date` in SQLite.
+- Stores users, sessions, and user-linked push subscriptions in SQLite.
+- Uses Google login so check-in suppression is account-based (not browser-only).
 - Logs fasting answers locally in IndexedDB (local-first).
 - Shows prayer times from JAKIM/e-Solat (Today + next 30 days).
 - Sends check-in push every 10 minutes during these windows until answered:
@@ -60,7 +61,13 @@ Option A (Node):
 npx web-push generate-vapid-keys
 ```
 
-3. Install dependencies and run:
+3. Add your Google OAuth Web Client ID in `.env`:
+
+```env
+GOOGLE_CLIENT_ID=YOUR_GOOGLE_OAUTH_WEB_CLIENT_ID.apps.googleusercontent.com
+```
+
+4. Install dependencies and run:
 
 ```bash
 python -m venv .venv
@@ -91,11 +98,12 @@ location.reload();
 
 1. Copy project to `/opt/fasting-pwa`.
 2. Put production `.env` at `/opt/fasting-pwa/backend/.env`.
-3. Set `FRONTEND_BASE_URL` and `CORS_ORIGINS` in `.env`:
+3. Set `FRONTEND_BASE_URL`, `CORS_ORIGINS`, and `GOOGLE_CLIENT_ID` in `.env`:
 
 ```env
 FRONTEND_BASE_URL=https://syaqirshaq.online
 CORS_ORIGINS=https://syaqirshaq.online,https://www.syaqirshaq.online,https://fasting.syaqirshaq.online
+GOOGLE_CLIENT_ID=YOUR_GOOGLE_OAUTH_WEB_CLIENT_ID.apps.googleusercontent.com
 ```
 
 4. Run:

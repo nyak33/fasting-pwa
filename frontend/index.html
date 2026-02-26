@@ -528,6 +528,14 @@
         <p class="muted">
           Set sehingga 3 waktu notifikasi sehari. (Set up to 3 reminders per day.)
         </p>
+        <div class="field" style="max-width: 220px; margin-bottom: 8px">
+          <label for="reminderSlotCount">Bilangan slot (Number of slots)</label>
+          <select id="reminderSlotCount">
+            <option value="1">1 slot</option>
+            <option value="2">2 slots</option>
+            <option value="3" selected>3 slots</option>
+          </select>
+        </div>
         <div id="reminderSlots" class="reminder-slots">
           <article class="reminder-slot" data-slot-index="0">
             <strong>Slot 1</strong>
@@ -557,8 +565,15 @@
                 </select>
               </div>
               <div class="field" data-prayer-wrap style="display: none">
+                <label for="slotDirection0">Arah (Direction)</label>
+                <select id="slotDirection0" data-slot-direction>
+                  <option value="before">Before</option>
+                  <option value="after" selected>After</option>
+                </select>
+              </div>
+              <div class="field" data-prayer-wrap style="display: none">
                 <label for="slotOffset0">Offset minit (minutes)</label>
-                <input id="slotOffset0" data-slot-offset type="number" min="-180" max="180" step="1" />
+                <input id="slotOffset0" data-slot-offset type="number" min="0" max="180" step="1" />
               </div>
             </div>
           </article>
@@ -590,8 +605,15 @@
                 </select>
               </div>
               <div class="field" data-prayer-wrap style="display: none">
+                <label for="slotDirection1">Arah (Direction)</label>
+                <select id="slotDirection1" data-slot-direction>
+                  <option value="before">Before</option>
+                  <option value="after" selected>After</option>
+                </select>
+              </div>
+              <div class="field" data-prayer-wrap style="display: none">
                 <label for="slotOffset1">Offset minit (minutes)</label>
-                <input id="slotOffset1" data-slot-offset type="number" min="-180" max="180" step="1" />
+                <input id="slotOffset1" data-slot-offset type="number" min="0" max="180" step="1" />
               </div>
             </div>
           </article>
@@ -623,8 +645,15 @@
                 </select>
               </div>
               <div class="field" data-prayer-wrap style="display: none">
+                <label for="slotDirection2">Arah (Direction)</label>
+                <select id="slotDirection2" data-slot-direction>
+                  <option value="before">Before</option>
+                  <option value="after" selected>After</option>
+                </select>
+              </div>
+              <div class="field" data-prayer-wrap style="display: none">
                 <label for="slotOffset2">Offset minit (minutes)</label>
-                <input id="slotOffset2" data-slot-offset type="number" min="-180" max="180" step="1" />
+                <input id="slotOffset2" data-slot-offset type="number" min="0" max="180" step="1" />
               </div>
             </div>
           </article>
@@ -678,6 +707,6 @@
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script type="module" src="./app.js?v=20260226-14"></script>
+    <script type="module" src="./app.js?v=20260226-15"></script>
   </body>
 </html>

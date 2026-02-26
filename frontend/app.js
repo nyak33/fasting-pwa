@@ -5,7 +5,7 @@
 
 const TIMEZONE = "Asia/Kuala_Lumpur";
 const BASE_PATH = new URL("./", window.location.href).pathname;
-const APP_VERSION = "20260226-14";
+const APP_VERSION = "20260226-15";
 const PROD_BACKEND_BASE = "https://api.syaqirshaq.online/api";
 
 const RAMADAN_YEAR_CONFIG = {
@@ -81,6 +81,7 @@ const state = {
   activeTag: null,
   pendingCheckinRequest: null,
   reminderSlots: [...DEFAULT_REMINDER_SLOTS],
+  reminderSlotCount: 3,
 };
 
 const els = {
@@ -122,6 +123,7 @@ const els = {
   prayerTableBody: document.getElementById("prayerTableBody"),
   prayerFooter: document.getElementById("prayerFooter"),
   reminderSlots: document.getElementById("reminderSlots"),
+  reminderSlotCount: document.getElementById("reminderSlotCount"),
   saveReminderSettingsBtn: document.getElementById("saveReminderSettingsBtn"),
   reminderSettingsStatus: document.getElementById("reminderSettingsStatus"),
 };
@@ -197,6 +199,11 @@ function getReminderSlotEditors() {
 }
 
 function setupReminderEditorListeners() {
+  els.reminderSlotCount?.addEventListener("change", () => {
+    const nextCount = clampReminderSlotCount(Number(els.reminderSlotCount.value));
+    setReminderSlotCount(nextCount);
+    setReminderStatus(`Using ${nextCount} reminder slot(s).`);
+  });
   for (const slotEl of getReminderSlotEditors()) {
     const typeSelect = slotEl.querySelector("[data-slot-type]");
     typeSelect?.addEventListener("change", () => syncReminderSlotVisibility(slotEl));
@@ -221,8 +228,31 @@ function setReminderStatus(message, isError = false) {
 }
 
 function initReminderEditors() {
+  setReminderSlotCount(3);
   applyReminderSlotsToEditors(DEFAULT_REMINDER_SLOTS);
   syncReminderAuthState();
+}
+
+function clampReminderSlotCount(value) {
+  if (!Number.isInteger(value)) return 3;
+  return Math.max(1, Math.min(3, value));
+}
+
+function setReminderSlotCount(value) {
+  const count = clampReminderSlotCount(value);
+  state.reminderSlotCount = count;
+  if (els.reminderSlotCount) {
+    els.reminderSlotCount.value = String(count);
+  }
+
+  const editors = getReminderSlotEditors();
+  editors.forEach((slotEl, index) => {
+    const enabled = index < count;
+    slotEl.style.display = enabled ? "grid" : "none";
+    for (const input of slotEl.querySelectorAll("input, select, button, textarea")) {
+      input.disabled = !enabled;
+    }
+  });
 }
 
 function syncReminderAuthState() {
@@ -238,6 +268,7 @@ function syncReminderAuthState() {
 function applyReminderSlotsToEditors(slots) {
   const normalized = normalizeReminderSlots(slots);
   state.reminderSlots = normalized;
+  setReminderSlotCount(normalized.length || 1);
 
   const editors = getReminderSlotEditors();
   editors.forEach((slotEl, index) => {
@@ -245,12 +276,15 @@ function applyReminderSlotsToEditors(slots) {
     const typeSelect = slotEl.querySelector("[data-slot-type]");
     const timeInput = slotEl.querySelector("[data-slot-time]");
     const prayerSelect = slotEl.querySelector("[data-slot-prayer]");
+    const directionSelect = slotEl.querySelector("[data-slot-direction]");
     const offsetInput = slotEl.querySelector("[data-slot-offset]");
+    const offset = slot.type === "prayer" ? Number(slot.offset_minutes || 0) : 0;
 
     if (typeSelect) typeSelect.value = slot.type;
     if (timeInput) timeInput.value = slot.type === "fixed" ? slot.time : "09:00";
     if (prayerSelect) prayerSelect.value = slot.type === "prayer" ? slot.prayer : "maghrib";
-    if (offsetInput) offsetInput.value = String(slot.type === "prayer" ? slot.offset_minutes : 0);
+    if (directionSelect) directionSelect.value = offset < 0 ? "before" : "after";
+    if (offsetInput) offsetInput.value = String(Math.abs(offset));
     syncReminderSlotVisibility(slotEl);
   });
 }
@@ -294,7 +328,9 @@ function normalizeHhmm(value) {
 
 function collectReminderSlotsFromEditors() {
   const slots = [];
-  for (const slotEl of getReminderSlotEditors()) {
+  const count = clampReminderSlotCount(state.reminderSlotCount);
+  const editors = getReminderSlotEditors().slice(0, count);
+  for (const slotEl of editors) {
     const type = String(slotEl.querySelector("[data-slot-type]")?.value || "fixed");
     if (type === "fixed") {
       const hhmm = normalizeHhmm(String(slotEl.querySelector("[data-slot-time]")?.value || ""));
@@ -311,12 +347,18 @@ function collectReminderSlotsFromEditors() {
       setReminderStatus("Please select a valid prayer for each prayer-based slot.", true);
       return null;
     }
-    let offset = Number(slotEl.querySelector("[data-slot-offset]")?.value || 0);
-    if (!Number.isInteger(offset)) {
+    const direction = String(slotEl.querySelector("[data-slot-direction]")?.value || "after").toLowerCase();
+    if (direction !== "before" && direction !== "after") {
+      setReminderStatus("Please select Before or After for each prayer slot.", true);
+      return null;
+    }
+    let offsetAbs = Number(slotEl.querySelector("[data-slot-offset]")?.value || 0);
+    if (!Number.isInteger(offsetAbs)) {
       setReminderStatus("Offset must be a whole number of minutes.", true);
       return null;
     }
-    offset = Math.max(-180, Math.min(180, offset));
+    offsetAbs = Math.max(0, Math.min(180, offsetAbs));
+    const offset = direction === "before" ? -offsetAbs : offsetAbs;
     slots.push({ type: "prayer", prayer, offset_minutes: offset });
   }
   return slots.slice(0, 3);

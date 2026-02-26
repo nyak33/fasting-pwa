@@ -5,7 +5,7 @@
 
 const TIMEZONE = "Asia/Kuala_Lumpur";
 const BASE_PATH = new URL("./", window.location.href).pathname;
-const APP_VERSION = "20260226-11";
+const APP_VERSION = "20260226-12";
 const PROD_BACKEND_BASE = "https://api.syaqirshaq.online/api";
 
 const RAMADAN_YEAR_CONFIG = {
@@ -149,6 +149,7 @@ function setupEventListeners() {
     if (!dayButton) return;
     const date = normalizeIsoDate(dayButton.dataset.date || "");
     if (!date) return;
+    if (date > todayInTimezone()) return;
     openDayDialog(date);
   });
 
@@ -265,6 +266,7 @@ function renderAll() {
 
 function renderCalendar() {
   if (!els.calendarGrid || !els.calendarMonthLabel) return;
+  const todayIso = todayInTimezone();
 
   const monthDate = new Date(Date.UTC(state.viewMonthYear, state.viewMonthIndex, 1));
   els.calendarMonthLabel.textContent = new Intl.DateTimeFormat("en-US", {
@@ -280,25 +282,33 @@ function renderCalendar() {
     .map((cell) => {
       const log = state.logsByDate.get(cell.iso);
       const inWindow = isWithinRamadanWindow(cell.iso, state.selectedRamadanYear);
+      const isFuture = cell.iso > todayIso;
       let mark = "&nbsp;";
       let markClass = "day-mark";
 
       if (log?.status === "fasted") {
-        mark = "?";
+        mark = "&#10003;";
         markClass += " fasted";
       } else if (log?.status === "not_fasted") {
-        mark = "?";
+        mark = "&#10007;";
         markClass += " not-fasted";
       } else if (inWindow) {
         mark = "?";
         markClass += " unknown";
       }
 
-      const classes = ["day-cell", cell.isCurrentMonth ? "" : "outside-month", inWindow ? "in-ramadan" : ""]
+      const classes = [
+        "day-cell",
+        cell.isCurrentMonth ? "" : "outside-month",
+        inWindow ? "in-ramadan" : "",
+        isFuture ? "future-date" : "",
+      ]
         .filter(Boolean)
         .join(" ");
 
-      return `<button type="button" class="${classes}" data-date="${cell.iso}">
+      return `<button type="button" class="${classes}" data-date="${cell.iso}" ${
+        isFuture ? "disabled" : ""
+      } aria-disabled="${isFuture ? "true" : "false"}">
         <span class="day-num">${cell.day}</span>
         <span class="${markClass}">${mark}</span>
       </button>`;
@@ -428,6 +438,11 @@ async function handleDialogAnswer(answer) {
 
   try {
     const date = state.activeDate;
+    if (date > todayInTimezone()) {
+      els.checkinMessage.textContent =
+        "Tarikh akan datang tidak boleh dilog. (Future dates cannot be logged.)";
+      return;
+    }
     const pending = state.pendingCheckinRequest;
 
     if (answer === "clear") {

@@ -316,6 +316,11 @@
         cursor: pointer;
       }
 
+      .day-cell:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
       .day-cell.outside-month {
         opacity: 0.45;
       }
@@ -539,6 +544,6 @@
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script type="module" src="./app.js?v=20260226-11"></script>
+    <script type="module" src="./app.js?v=20260226-12"></script>
   </body>
 </html>

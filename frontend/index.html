@@ -80,6 +80,11 @@
         gap: 10px;
       }
 
+      .between {
+        justify-content: space-between;
+        align-items: center;
+      }
+
       .tabs {
         display: flex;
         gap: 8px;
@@ -250,12 +255,155 @@
       #logoutBtn {
         display: none;
       }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      label {
+        font-weight: 600;
+      }
+
+      select,
+      input[type="number"] {
+        border: 1px solid #cfe0d7;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #fff;
+        color: var(--text);
+      }
+
+      .calendar-wrap {
+        display: grid;
+        gap: 12px;
+      }
+
+      .calendar-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .calendar-title {
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+
+      .calendar-weekdays,
+      .calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      .weekday {
+        text-align: center;
+        font-size: 0.8rem;
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .day-cell {
+        border: 1px solid #dce9e2;
+        border-radius: 10px;
+        min-height: 78px;
+        padding: 6px;
+        background: #fff;
+        display: grid;
+        align-content: space-between;
+        cursor: pointer;
+      }
+
+      .day-cell.outside-month {
+        opacity: 0.45;
+      }
+
+      .day-cell.in-ramadan {
+        background: #edf7f1;
+        border-color: #b9d8c7;
+      }
+
+      .day-num {
+        font-weight: 700;
+        font-size: 0.92rem;
+      }
+
+      .day-mark {
+        font-size: 1rem;
+        font-weight: 800;
+      }
+
+      .day-mark.fasted {
+        color: #1f8b4c;
+      }
+
+      .day-mark.not-fasted {
+        color: #b23a3a;
+      }
+
+      .day-mark.unknown {
+        color: #7f8f86;
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      table.summary-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .summary-table th,
+      .summary-table td {
+        text-align: left;
+        padding: 8px 6px;
+        border-bottom: 1px solid #e5efe9;
+        white-space: nowrap;
+      }
+
+      .summary-table th {
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .tag-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .tag-chip {
+        background: #eef4f1;
+        border: 1px solid #d3e2da;
+        color: var(--text);
+      }
+
+      .tag-chip.active {
+        background: var(--brand);
+        color: #fff;
+        border-color: var(--brand);
+      }
+
+      #overrideError {
+        color: #b23a3a;
+        min-height: 1.2em;
+      }
     </style>
   </head>
   <body>
     <main class="shell">
       <section class="card">
-        <h1>Fasting Tracker (Malaysia)</h1>
+        <div class="row between">
+          <h1>Fasting Tracker (Malaysia)</h1>
+          <div class="field">
+            <label for="ramadanYearSelect">Ramadhan Year:</label>
+            <select id="ramadanYearSelect"></select>
+          </div>
+        </div>
         <p class="muted">Local-first tracker using IndexedDB. Timezone: Asia/Kuala_Lumpur.</p>
         <p id="ramadanDayMeta" class="muted">Checking Ramadan day...</p>
         <p id="authMeta" class="muted">Google login required for push check-in sync.</p>
@@ -271,8 +419,62 @@
       </section>
 
       <section class="card" id="homePanel">
-        <h2>Daily Logs</h2>
-        <ul id="logs"></ul>
+        <h2 id="ramadanViewTitle">Ramadhan 2026</h2>
+        <div class="calendar-wrap">
+          <div class="calendar-toolbar">
+            <button id="monthPrevBtn" class="btn-outline" type="button" aria-label="Previous month">&lt;</button>
+            <div id="calendarMonthLabel" class="calendar-title">FEBRUARY 2026</div>
+            <button id="monthNextBtn" class="btn-outline" type="button" aria-label="Next month">&gt;</button>
+          </div>
+          <div class="calendar-weekdays" aria-hidden="true">
+            <div class="weekday">Sun</div>
+            <div class="weekday">Mon</div>
+            <div class="weekday">Tue</div>
+            <div class="weekday">Wed</div>
+            <div class="weekday">Thu</div>
+            <div class="weekday">Fri</div>
+            <div class="weekday">Sat</div>
+          </div>
+          <div id="calendarGrid" class="calendar-grid"></div>
+        </div>
+
+        <section class="summary-section" id="summarySection" style="margin-top: 12px">
+          <div class="row between">
+            <h3>Ringkasan Ramadhan (Ramadan Summary)</h3>
+            <button id="openOverrideBtn" class="btn-outline" type="button">Set Perlu Ganti (Set Required)</button>
+          </div>
+          <div class="table-wrap">
+            <table class="summary-table">
+              <thead>
+                <tr>
+                  <th>Ramadhan</th>
+                  <th>Puasa ✓ (Fasted)</th>
+                  <th>Tak puasa ✗ (Not fasted)</th>
+                  <th>Belum log ? (Unlogged)</th>
+                </tr>
+              </thead>
+              <tbody id="ramadanSummaryBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="summary-section" style="margin-top: 12px">
+          <h3>Progress Ganti (Make-up Progress)</h3>
+          <div class="table-wrap">
+            <table class="summary-table">
+              <thead>
+                <tr>
+                  <th>Tahun (Year)</th>
+                  <th>Perlu (Required)</th>
+                  <th>Dah ganti (Done)</th>
+                  <th>Baki (Remaining)</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody id="gantiSummaryBody"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
       <section class="card" id="prayerPanel">
@@ -296,22 +498,47 @@
         <p id="prayerFooter" class="muted small"></p>
       </section>
 
-      <section class="card" id="summaryPanel">
-        <div id="summaryText" class="muted">Loading summary...</div>
-      </section>
     </main>
 
     <dialog id="checkinDialog">
-      <h3 id="checkinTitle">Fasting Check-in</h3>
+      <h3 id="checkinTitle">Log Hari (Day Log)</h3>
       <p id="checkinPrompt"></p>
       <p id="checkinMessage" class="muted"></p>
       <div class="row">
-        <button data-answer="fasting" class="btn-primary">Fasting</button>
-        <button data-answer="not_fasting" class="btn-danger">Missed / Not fasting</button>
+        <button data-answer="fasted" class="btn-primary">✓ Puasa (Fasted)</button>
+        <button data-answer="not_fasted" class="btn-danger">✗ Tak puasa (Not fasted)</button>
+        <button data-answer="clear" class="btn-outline">Clear (Padam log)</button>
+      </div>
+      <div id="tagSection" style="display: none; margin-top: 8px">
+        <p class="muted">Tag untuk tarikh luar Ramadhan (Tag for non-Ramadhan dates)</p>
+        <div class="tag-chips">
+          <button data-tag="ganti" class="tag-chip" type="button">Ganti (Make-up)</button>
+          <button data-tag="sunnah" class="tag-chip" type="button">Sunat (Sunnah)</button>
+          <button data-tag="none" class="tag-chip" type="button">None</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="overrideDialog">
+      <h3>Set Perlu Ganti (Set Required)</h3>
+      <div class="field">
+        <label for="overrideYearSelect">Tahun Ramadhan (Ramadhan Year)</label>
+        <select id="overrideYearSelect"></select>
+      </div>
+      <div class="field" style="margin-top: 10px">
+        <label for="overrideRequiredInput">Perlu ganti (Required)</label>
+        <input id="overrideRequiredInput" type="number" min="0" step="1" />
+      </div>
+      <p id="overrideMissedLine" class="muted"></p>
+      <p id="overrideError" class="small"></p>
+      <div class="row">
+        <button id="overrideSaveBtn" class="btn-primary" type="button">Save</button>
+        <button id="overrideCancelBtn" class="btn-outline" type="button">Cancel</button>
+        <button id="overrideClearBtn" class="btn-danger" type="button">Clear override</button>
       </div>
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script type="module" src="./app.js?v=20260226-10"></script>
+    <script type="module" src="./app.js?v=20260226-11"></script>
   </body>
 </html>
